@@ -22,6 +22,9 @@ This plugin is like a toolbox that adds many useful features to your WordPress w
 **Key protections:**
 
 -   **File Editing Protection** - Prevents hackers from editing your theme/plugin files through the admin panel
+-   **File Modification Protection** - Prevents installation and updates of plugins/themes through admin (DISALLOW_FILE_MODS)
+-   **Automatic Updater Disabled** - Disables automatic WordPress updates for manual control (AUTOMATIC_UPDATER_DISABLED)
+-   **Automatic wp-config.php Security** - Automatically adds security constants to wp-config.php on plugin activation
 -   **Version Hiding** - Hides WordPress version number from attackers (they can't see what version you're using)
 -   **Login Security** - Hides login error messages and limits login attempts to prevent brute force attacks
 -   **XML-RPC Protection** - Disables XML-RPC to prevent attacks through that method
@@ -31,8 +34,9 @@ This plugin is like a toolbox that adds many useful features to your WordPress w
 -   **Author Scanning Protection** - Prevents attackers from finding usernames by scanning author pages
 -   **File Upload Security** - Restricts dangerous file types from being uploaded
 -   **Comment Security** - Sanitizes comment data to prevent malicious code
+-   **.htaccess Security Rules** - Automatically adds security rules to .htaccess file
 
-**How it works:** All these protections run automatically in the background. You don't need to do anything - your site is protected as soon as the plugin is active.
+**How it works:** All these protections run automatically in the background. Security constants are automatically added to wp-config.php when the plugin is activated (if the file is writable). You can also manage security settings through the Security Config page under Tools.
 
 ---
 
@@ -68,16 +72,18 @@ This plugin is like a toolbox that adds many useful features to your WordPress w
 
 **What it does:** Adds special content types for organizing your content.
 
-**Custom Post Type:**
+**Custom Post Types:**
 
 -   **Case Results** - A special content type for showcasing legal case results with its own menu in WordPress admin
+-   **Testimonials** - A content type for displaying customer testimonials with its own menu in WordPress admin
 
 **Custom Taxonomies:**
 
 -   **Case Result Category** - Categories for organizing case results
 -   **Case Type** - Types of cases (e.g., Personal Injury, Criminal Defense, etc.)
+-   **Testimonial Category** - Categories for organizing testimonials
 
-**How it works:** These appear in your WordPress admin menu. You can create and organize case results just like you would with regular posts, but they're kept separate and organized.
+**How it works:** These appear in your WordPress admin menu. You can create and organize case results and testimonials just like you would with regular posts, but they're kept separate and organized.
 
 ---
 
@@ -237,7 +243,13 @@ Most features work automatically without any configuration needed. However, some
 ### Security
 
 -   All security features are enabled by default
--   No configuration needed - your site is protected automatically
+-   Security constants are automatically added to wp-config.php on plugin activation
+-   **Security Configuration Page** - Go to **Tools > Security Config** to:
+    -   Add security rules to .htaccess file
+    -   Add security constants to wp-config.php
+    -   Fix commented-out security constants (if they were accidentally added inside comment blocks)
+    -   View recommended security settings
+-   If wp-config.php is not writable, you'll see instructions for manual configuration
 
 ---
 
@@ -264,6 +276,7 @@ lionhead-oxygen/
 ├── plugin.php (Main plugin file)
 ├── includes/
 │   ├── security.php (Security features)
+│   ├── security-config.php (Security configuration and wp-config.php management)
 │   ├── oxygen-fonts.php (Custom fonts)
 │   ├── performance-optimization.php (Performance features)
 │   ├── image-optimization.php (Image optimization)
@@ -300,8 +313,11 @@ For issues or questions, contact the plugin developer.
 -   Custom fonts support
 -   Oxygen Builder integration
 -   Lazy content loading
--   Custom post types and taxonomies
+-   Custom post types and taxonomies (Case Results, Testimonials)
 -   Helper and utility functions
+-   Automatic wp-config.php security constants addition
+-   Security Configuration admin page
+-   Automatic detection and fixing of commented-out security constants
 
 ---
 

@@ -1,0 +1,415 @@
+<?php
+/**
+ * Security Configuration for wp-config.php and .htaccess
+ * Adds security settings to wp-config.php and .htaccess files
+ *
+ * @package Lionhead_Oxygen
+ */
+
+if ( ! defined( 'WPINC' ) ) {
+	die;
+}
+
+// ============================================================================
+// WP-CONFIG.PHP SECURITY SETTINGS
+// ============================================================================
+
+/**
+ * Check and recommend wp-config.php security settings
+ * Note: wp-config.php cannot be modified directly by plugins for security reasons
+ * This function checks if recommended settings are present and shows admin notice
+ */
+function lhd_check_wpconfig_security() {
+	// Only show to admins
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+
+	$wpconfig_path = ABSPATH . 'wp-config.php';
+	
+	// Check if wp-config.php exists and is readable
+	if ( ! file_exists( $wpconfig_path ) || ! is_readable( $wpconfig_path ) ) {
+		return;
+	}
+
+	$wpconfig_content = file_get_contents( $wpconfig_path );
+	$recommendations = array();
+
+	// Check for security keys
+	if ( ! defined( 'AUTH_KEY' ) || AUTH_KEY === 'put your unique phrase here' ) {
+		$recommendations[] = 'Security keys should be set (AUTH_KEY, SECURE_AUTH_KEY, etc.)';
+	}
+
+	// Check for DISALLOW_FILE_EDIT
+	if ( strpos( $wpconfig_content, "define( 'DISALLOW_FILE_EDIT', true );" ) === false && 
+		 strpos( $wpconfig_content, 'define( "DISALLOW_FILE_EDIT", true );' ) === false ) {
+		$recommendations[] = 'DISALLOW_FILE_EDIT should be set to true';
+	}
+
+	// Check for WP_DEBUG
+	if ( strpos( $wpconfig_content, "define( 'WP_DEBUG', true );" ) !== false ) {
+		$recommendations[] = 'WP_DEBUG should be set to false on production sites';
+	}
+
+	// Check for database table prefix
+	global $wpdb;
+	if ( $wpdb->prefix === 'wp_' ) {
+		$recommendations[] = 'Database table prefix should be changed from default "wp_"';
+	}
+
+	// Show recommendations if any
+	if ( ! empty( $recommendations ) ) {
+		add_action( 'admin_notices', function() use ( $recommendations ) {
+			?>
+			<div class="notice notice-warning">
+				<p><strong>Security Recommendations for wp-config.php:</strong></p>
+				<ul style="list-style: disc; margin-left: 20px;">
+					<?php foreach ( $recommendations as $rec ) : ?>
+						<li><?php echo esc_html( $rec ); ?></li>
+					<?php endforeach; ?>
+				</ul>
+				<p>See the plugin documentation for instructions on adding these settings manually.</p>
+			</div>
+			<?php
+		});
+	}
+}
+add_action( 'admin_init', 'lhd_check_wpconfig_security' );
+
+/**
+ * Get recommended wp-config.php security settings
+ * Returns an array of settings that should be added to wp-config.php
+ *
+ * @return array Array of security settings with descriptions
+ */
+function lhd_get_wpconfig_security_settings() {
+	return array(
+		'DISALLOW_FILE_EDIT' => array(
+			'code' => "define( 'DISALLOW_FILE_EDIT', true );",
+			'description' => 'Prevents file editing through WordPress admin',
+			'location' => 'Add before "That\'s all, stop editing!" line',
+		),
+		'FORCE_SSL_ADMIN' => array(
+			'code' => "define( 'FORCE_SSL_ADMIN', true );",
+			'description' => 'Forces SSL for admin area (requires SSL certificate)',
+			'location' => 'Add before "That\'s all, stop editing!" line',
+		),
+		'WP_DEBUG' => array(
+			'code' => "define( 'WP_DEBUG', false );",
+			'description' => 'Disables debug mode on production (should be false)',
+			'location' => 'Add before "That\'s all, stop editing!" line',
+		),
+		'WP_DEBUG_LOG' => array(
+			'code' => "define( 'WP_DEBUG_LOG', false );",
+			'description' => 'Disables debug logging on production',
+			'location' => 'Add before "That\'s all, stop editing!" line',
+		),
+		'WP_DEBUG_DISPLAY' => array(
+			'code' => "define( 'WP_DEBUG_DISPLAY', false );",
+			'description' => 'Hides debug errors from displaying on frontend',
+			'location' => 'Add before "That\'s all, stop editing!" line',
+		),
+		'DISALLOW_FILE_MODS' => array(
+			'code' => "define( 'DISALLOW_FILE_MODS', true );",
+			'description' => 'Prevents installation/update of plugins and themes (optional, use with caution)',
+			'location' => 'Add before "That\'s all, stop editing!" line',
+		),
+		'AUTOMATIC_UPDATER_DISABLED' => array(
+			'code' => "define( 'AUTOMATIC_UPDATER_DISABLED', true );",
+			'description' => 'Disables automatic updates (optional, for manual control)',
+			'location' => 'Add before "That\'s all, stop editing!" line',
+		),
+	);
+}
+
+// ============================================================================
+// .HTACCESS SECURITY SETTINGS
+// ============================================================================
+
+/**
+ * Add security rules to .htaccess file
+ * Creates backup before modifying
+ */
+function lhd_add_htaccess_security() {
+	// Only run if user has permission
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+
+	$htaccess_path = ABSPATH . '.htaccess';
+	
+	// Check if .htaccess exists, create if not
+	if ( ! file_exists( $htaccess_path ) ) {
+		// Create basic .htaccess with WordPress rules
+		$basic_htaccess = "# BEGIN WordPress\n";
+		$basic_htaccess .= "<IfModule mod_rewrite.c>\n";
+		$basic_htaccess .= "RewriteEngine On\n";
+		$basic_htaccess .= "RewriteBase /\n";
+		$basic_htaccess .= "RewriteRule ^index\.php$ - [L]\n";
+		$basic_htaccess .= "RewriteCond %{REQUEST_FILENAME} !-f\n";
+		$basic_htaccess .= "RewriteCond %{REQUEST_FILENAME} !-d\n";
+		$basic_htaccess .= "RewriteRule . /index.php [L]\n";
+		$basic_htaccess .= "</IfModule>\n";
+		$basic_htaccess .= "# END WordPress\n";
+		
+		file_put_contents( $htaccess_path, $basic_htaccess );
+	}
+
+	// Read current .htaccess
+	$htaccess_content = file_get_contents( $htaccess_path );
+	
+	// Check if our security rules are already added
+	if ( strpos( $htaccess_content, '# BEGIN Lionhead Security' ) !== false ) {
+		return; // Already added
+	}
+
+	// Create backup
+	$backup_path = $htaccess_path . '.backup.' . date( 'Y-m-d-H-i-s' );
+	copy( $htaccess_path, $backup_path );
+
+	// Get security rules
+	$security_rules = lhd_get_htaccess_security_rules();
+
+	// Add security rules before WordPress rules
+	$wp_start = strpos( $htaccess_content, '# BEGIN WordPress' );
+	
+	if ( $wp_start !== false ) {
+		// Insert before WordPress rules
+		$new_content = substr( $htaccess_content, 0, $wp_start ) . 
+					   $security_rules . "\n" . 
+					   substr( $htaccess_content, $wp_start );
+	} else {
+		// Append to end
+		$new_content = $htaccess_content . "\n" . $security_rules;
+	}
+
+	// Write to file
+	$result = file_put_contents( $htaccess_path, $new_content );
+
+	if ( $result !== false ) {
+		// Success - log backup location
+		update_option( 'lhd_htaccess_backup', $backup_path );
+	}
+}
+
+/**
+ * Get .htaccess security rules
+ *
+ * @return string Security rules for .htaccess
+ */
+function lhd_get_htaccess_security_rules() {
+	$rules = "# BEGIN Lionhead Security\n";
+	$rules .= "# Added by Lionhead Digital Custom Functionality Plugin\n";
+	$rules .= "# Backup created before modification\n\n";
+
+	// Disable directory browsing
+	$rules .= "# Disable directory browsing\n";
+	$rules .= "Options -Indexes\n\n";
+
+	// Protect wp-config.php
+	$rules .= "# Protect wp-config.php\n";
+	$rules .= "<Files wp-config.php>\n";
+	$rules .= "    Order allow,deny\n";
+	$rules .= "    Deny from all\n";
+	$rules .= "</Files>\n\n";
+
+	// Protect .htaccess
+	$rules .= "# Protect .htaccess\n";
+	$rules .= "<Files .htaccess>\n";
+	$rules .= "    Order allow,deny\n";
+	$rules .= "    Deny from all\n";
+	$rules .= "</Files>\n\n";
+
+	// Protect .htpasswd
+	$rules .= "# Protect .htpasswd\n";
+	$rules .= "<Files .htpasswd>\n";
+	$rules .= "    Order allow,deny\n";
+	$rules .= "    Deny from all\n";
+	$rules .= "</Files>\n\n";
+
+	// Block access to readme files
+	$rules .= "# Block access to readme files\n";
+	$rules .= "<FilesMatch \"^(readme|license|changelog|readme\.txt|readme\.html)$\">\n";
+	$rules .= "    Order allow,deny\n";
+	$rules .= "    Deny from all\n";
+	$rules .= "</FilesMatch>\n\n";
+
+	// Block access to sensitive files
+	$rules .= "# Block access to sensitive files\n";
+	$rules .= "<FilesMatch \"\\.(htaccess|htpasswd|ini|log|sh|sql|bak|backup|old)$\">\n";
+	$rules .= "    Order allow,deny\n";
+	$rules .= "    Deny from all\n";
+	$rules .= "</FilesMatch>\n\n";
+
+	// Disable XML-RPC
+	$rules .= "# Disable XML-RPC\n";
+	$rules .= "<Files xmlrpc.php>\n";
+	$rules .= "    Order allow,deny\n";
+	$rules .= "    Deny from all\n";
+	$rules .= "</Files>\n\n";
+
+	// Block suspicious query strings
+	$rules .= "# Block suspicious query strings\n";
+	$rules .= "<IfModule mod_rewrite.c>\n";
+	$rules .= "    RewriteEngine On\n";
+	$rules .= "    RewriteCond %{QUERY_STRING} (<|%3C).*script.*(>|%3E) [NC,OR]\n";
+	$rules .= "    RewriteCond %{QUERY_STRING} GLOBALS(=|[|%[0-9A-Z]{0,2}) [OR]\n";
+	$rules .= "    RewriteCond %{QUERY_STRING} _REQUEST(=|[|%[0-9A-Z]{0,2}) [OR]\n";
+	$rules .= "    RewriteCond %{QUERY_STRING} proc/self/environ [OR]\n";
+	$rules .= "    RewriteCond %{QUERY_STRING} mosConfig_[a-zA-Z_]{1,21}(=|%3D) [OR]\n";
+	$rules .= "    RewriteCond %{QUERY_STRING} base64_encode.*\\(.*\\) [OR]\n";
+	$rules .= "    RewriteCond %{QUERY_STRING} (<|%3C).*iframe.*(>|%3E) [NC,OR]\n";
+	$rules .= "    RewriteCond %{QUERY_STRING} (<|%3C).*object.*(>|%3E) [NC,OR]\n";
+	$rules .= "    RewriteCond %{QUERY_STRING} (<|%3C).*embed.*(>|%3E) [NC]\n";
+	$rules .= "    RewriteRule ^(.*)$ - [F,L]\n";
+	$rules .= "</IfModule>\n\n";
+
+	// Block bad user agents
+	$rules .= "# Block bad user agents\n";
+	$rules .= "<IfModule mod_rewrite.c>\n";
+	$rules .= "    RewriteCond %{HTTP_USER_AGENT} ^$ [OR]\n";
+	$rules .= "    RewriteCond %{HTTP_USER_AGENT} ^(.*)(<|>|'|%0A|%0D|%27|%3C|%3E|%00) [NC,OR]\n";
+	$rules .= "    RewriteCond %{HTTP_USER_AGENT} ^(java|curl|python|wget|libwww) [NC,OR]\n";
+	$rules .= "    RewriteCond %{HTTP_USER_AGENT} ^(.*)(libwww-perl|wget|python|nikto|curl|scan|java|winhttp|clshttp|loader) [NC,OR]\n";
+	$rules .= "    RewriteCond %{HTTP_USER_AGENT} ^(.*)(;|<|>|'|\"|%0A|%0D|%27|%3C|%3E|%00) [NC]\n";
+	$rules .= "    RewriteRule ^(.*)$ - [F,L]\n";
+	$rules .= "</IfModule>\n\n";
+
+	// Security headers (if mod_headers is available)
+	$rules .= "# Security headers\n";
+	$rules .= "<IfModule mod_headers.c>\n";
+	$rules .= "    # Prevent clickjacking\n";
+	$rules .= "    Header always set X-Frame-Options \"SAMEORIGIN\"\n";
+	$rules .= "    # Prevent MIME type sniffing\n";
+	$rules .= "    Header always set X-Content-Type-Options \"nosniff\"\n";
+	$rules .= "    # XSS Protection\n";
+	$rules .= "    Header always set X-XSS-Protection \"1; mode=block\"\n";
+	$rules .= "    # Referrer Policy\n";
+	$rules .= "    Header always set Referrer-Policy \"strict-origin-when-cross-origin\"\n";
+	$rules .= "</IfModule>\n\n";
+
+	$rules .= "# END Lionhead Security\n";
+	
+	return $rules;
+}
+
+/**
+ * Add security rules to .htaccess on plugin activation
+ * This function is called via register_activation_hook in plugin.php
+ */
+function lhd_activate_htaccess_security() {
+	lhd_add_htaccess_security();
+}
+
+/**
+ * Add admin menu for security configuration
+ */
+function lhd_add_security_config_menu() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+
+	add_submenu_page(
+		'tools.php',
+		__( 'Security Configuration', 'lionhead-oxygen' ),
+		__( 'Security Config', 'lionhead-oxygen' ),
+		'manage_options',
+		'lhd-security-config',
+		'lhd_security_config_page'
+	);
+}
+add_action( 'admin_menu', 'lhd_add_security_config_menu' );
+
+/**
+ * Security configuration admin page
+ */
+function lhd_security_config_page() {
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+
+	// Handle form submission
+	if ( isset( $_POST['lhd_add_htaccess'] ) && check_admin_referer( 'lhd_security_config' ) ) {
+		lhd_add_htaccess_security();
+		echo '<div class="notice notice-success"><p>Security rules added to .htaccess successfully!</p></div>';
+	}
+
+	$htaccess_path = ABSPATH . '.htaccess';
+	$htaccess_exists = file_exists( $htaccess_path );
+	$htaccess_readable = $htaccess_exists && is_readable( $htaccess_path );
+	$security_added = false;
+	
+	if ( $htaccess_readable ) {
+		$htaccess_content = file_get_contents( $htaccess_path );
+		$security_added = strpos( $htaccess_content, '# BEGIN Lionhead Security' ) !== false;
+	}
+
+	$wpconfig_settings = lhd_get_wpconfig_security_settings();
+	?>
+	<div class="wrap">
+		<h1><?php esc_html_e( 'Security Configuration', 'lionhead-oxygen' ); ?></h1>
+		
+		<h2><?php esc_html_e( '.htaccess Security Rules', 'lionhead-oxygen' ); ?></h2>
+		<p><?php esc_html_e( 'Add security rules to your .htaccess file to protect against common attacks.', 'lionhead-oxygen' ); ?></p>
+		
+		<?php if ( $htaccess_exists ) : ?>
+			<?php if ( $security_added ) : ?>
+				<div class="notice notice-success">
+					<p><strong>✓ Security rules are already added to .htaccess</strong></p>
+				</div>
+			<?php else : ?>
+				<form method="post">
+					<?php wp_nonce_field( 'lhd_security_config' ); ?>
+					<p>
+						<button type="submit" name="lhd_add_htaccess" class="button button-primary">
+							<?php esc_html_e( 'Add Security Rules to .htaccess', 'lionhead-oxygen' ); ?>
+						</button>
+					</p>
+					<p class="description">
+						<?php esc_html_e( 'A backup of your .htaccess file will be created before modification.', 'lionhead-oxygen' ); ?>
+					</p>
+				</form>
+			<?php endif; ?>
+		<?php else : ?>
+			<div class="notice notice-warning">
+				<p><?php esc_html_e( '.htaccess file not found. It will be created when you add security rules.', 'lionhead-oxygen' ); ?></p>
+				<form method="post">
+					<?php wp_nonce_field( 'lhd_security_config' ); ?>
+					<p>
+						<button type="submit" name="lhd_add_htaccess" class="button button-primary">
+							<?php esc_html_e( 'Create .htaccess with Security Rules', 'lionhead-oxygen' ); ?>
+						</button>
+					</p>
+				</form>
+			</div>
+		<?php endif; ?>
+
+		<h2><?php esc_html_e( 'wp-config.php Security Settings', 'lionhead-oxygen' ); ?></h2>
+		<p><?php esc_html_e( 'The following settings should be manually added to your wp-config.php file. These cannot be added automatically for security reasons.', 'lionhead-oxygen' ); ?></p>
+		
+		<div class="card">
+			<h3><?php esc_html_e( 'Recommended Settings', 'lionhead-oxygen' ); ?></h3>
+			<p><?php esc_html_e( 'Add these lines to your wp-config.php file before the line that says "That\'s all, stop editing!"', 'lionhead-oxygen' ); ?></p>
+			
+			<?php foreach ( $wpconfig_settings as $key => $setting ) : ?>
+				<div style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-left: 4px solid #0073aa;">
+					<h4><?php echo esc_html( $key ); ?></h4>
+					<p><strong><?php echo esc_html( $setting['description'] ); ?></strong></p>
+					<p><code style="background: #fff; padding: 10px; display: block; border: 1px solid #ddd;"><?php echo esc_html( $setting['code'] ); ?></code></p>
+					<p class="description"><?php echo esc_html( $setting['location'] ); ?></p>
+				</div>
+			<?php endforeach; ?>
+			
+			<div class="notice notice-info">
+				<p><strong><?php esc_html_e( 'Important:', 'lionhead-oxygen' ); ?></strong></p>
+				<ul style="list-style: disc; margin-left: 20px;">
+					<li><?php esc_html_e( 'Always backup your wp-config.php file before making changes', 'lionhead-oxygen' ); ?></li>
+					<li><?php esc_html_e( 'Some settings may require additional configuration (like SSL certificate for FORCE_SSL_ADMIN)', 'lionhead-oxygen' ); ?></li>
+					<li><?php esc_html_e( 'Test your site after adding these settings', 'lionhead-oxygen' ); ?></li>
+				</ul>
+			</div>
+		</div>
+	</div>
+	<?php
+}
+

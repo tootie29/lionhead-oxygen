@@ -84,3 +84,42 @@ function lhd_register_case_type_taxonomy() {
 }
 add_action( 'init', 'lhd_register_case_type_taxonomy', 0 );
 
+/**
+ * Register Testimonial Category Taxonomy
+ */
+function lhd_register_testimonial_category_taxonomy() {
+	$labels = array(
+		'name'                       => _x( 'Testimonial Categories', 'Taxonomy General Name', 'lionhead-oxygen' ),
+		'singular_name'              => _x( 'Testimonial Category', 'Taxonomy Singular Name', 'lionhead-oxygen' ),
+		'menu_name'                  => __( 'Categories', 'lionhead-oxygen' ),
+		'all_items'                  => __( 'All Categories', 'lionhead-oxygen' ),
+		'parent_item'                => __( 'Parent Category', 'lionhead-oxygen' ),
+		'parent_item_colon'          => __( 'Parent Category:', 'lionhead-oxygen' ),
+		'new_item_name'              => __( 'New Category Name', 'lionhead-oxygen' ),
+		'add_new_item'               => __( 'Add New Category', 'lionhead-oxygen' ),
+		'edit_item'                  => __( 'Edit Category', 'lionhead-oxygen' ),
+		'update_item'                => __( 'Update Category', 'lionhead-oxygen' ),
+		'view_item'                  => __( 'View Category', 'lionhead-oxygen' ),
+		'separate_items_with_commas' => __( 'Separate categories with commas', 'lionhead-oxygen' ),
+		'add_or_remove_items'        => __( 'Add or remove categories', 'lionhead-oxygen' ),
+		'choose_from_most_used'      => __( 'Choose from the most used', 'lionhead-oxygen' ),
+		'popular_items'              => __( 'Popular Categories', 'lionhead-oxygen' ),
+		'search_items'               => __( 'Search Categories', 'lionhead-oxygen' ),
+		'not_found'                  => __( 'Not Found', 'lionhead-oxygen' ),
+		'no_terms'                   => __( 'No categories', 'lionhead-oxygen' ),
+	);
+
+	$args = array(
+		'labels'            => $labels,
+		'hierarchical'      => true,
+		'public'            => true,
+		'show_ui'           => true,
+		'show_admin_column' => true,
+		'show_in_nav_menus' => true,
+		'show_in_rest'      => true,
+	);
+
+	register_taxonomy( 'testimonial_category', array( 'testimonial' ), $args );
+}
+add_action( 'init', 'lhd_register_testimonial_category_taxonomy', 0 );
+

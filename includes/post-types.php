@@ -50,3 +50,44 @@ function lhd_register_case_result_cpt() {
 }
 add_action( 'init', 'lhd_register_case_result_cpt', 0 );
 
+/**
+ * Register Testimonial Custom Post Type
+ */
+function lhd_register_testimonial_cpt() {
+	$labels = array(
+		'name'                  => _x( 'Testimonials', 'Post Type General Name', 'lionhead-oxygen' ),
+		'singular_name'         => _x( 'Testimonial', 'Post Type Singular Name', 'lionhead-oxygen' ),
+		'menu_name'             => __( 'Testimonials', 'lionhead-oxygen' ),
+		'all_items'             => __( 'All Testimonials', 'lionhead-oxygen' ),
+		'add_new_item'          => __( 'Add New Testimonial', 'lionhead-oxygen' ),
+		'new_item'              => __( 'New Testimonial', 'lionhead-oxygen' ),
+		'edit_item'             => __( 'Edit Testimonial', 'lionhead-oxygen' ),
+		'update_item'           => __( 'Update Testimonial', 'lionhead-oxygen' ),
+		'view_item'             => __( 'View Testimonial', 'lionhead-oxygen' ),
+		'search_items'          => __( 'Search Testimonials', 'lionhead-oxygen' ),
+		'not_found'             => __( 'Not Found', 'lionhead-oxygen' ),
+		'not_found_in_trash'    => __( 'Not found in Trash', 'lionhead-oxygen' ),
+	);
+
+	$args = array(
+		'label'                 => __( 'Testimonial', 'lionhead-oxygen' ),
+		'description'           => __( 'Custom post type for showcasing testimonials.', 'lionhead-oxygen' ),
+		'labels'                => $labels,
+		'supports'              => array( 'title', 'editor', 'excerpt', 'author', 'thumbnail', 'comments', 'custom-fields' ),
+		'taxonomies'            => array( 'testimonial_category' ),
+		'hierarchical'          => false,
+		'public'                => true,
+		'show_ui'               => true,
+		'show_in_menu'          => true,
+		'menu_position'         => 6,
+		'menu_icon'             => 'dashicons-format-quote',
+		'has_archive'           => true,
+		'publicly_queryable'    => true,
+		'capability_type'       => 'post',
+		'show_in_rest'          => true,
+	);
+
+	register_post_type( 'testimonial', $args );
+}
+add_action( 'init', 'lhd_register_testimonial_cpt', 0 );
+

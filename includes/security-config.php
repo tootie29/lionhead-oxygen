@@ -53,68 +53,130 @@ function lhd_add_wpconfig_security_constants() {
 		"define( 'AUTOMATIC_UPDATER_DISABLED', true );",
 	);
 
-	// Check which constants are missing
-	$constants_to_add = array();
-	foreach ( $constants as $constant ) {
-		// Check if constant already exists (with both single and double quotes)
-		$single_quote = strpos( $wpconfig_content, $constant ) !== false;
-		$double_quote = strpos( $wpconfig_content, str_replace( "'", '"', $constant ) ) !== false;
-		
-		// Also check for variations with spaces
-		$constant_variations = array(
-			$constant,
-			str_replace( "'", '"', $constant ),
-			str_replace( " '", ' "', $constant ),
-			str_replace( "' ", '" ', $constant ),
-		);
-		
-		$found = false;
-		foreach ( $constant_variations as $variation ) {
-			if ( strpos( $wpconfig_content, $variation ) !== false ) {
-				$found = true;
+	// First, remove any commented-out constants (inside /* */ blocks)
+	// Pattern to match commented constants (inside /* */ blocks)
+	$commented_pattern = '/\/\*[\s\S]*?\/\*/';
+	preg_match_all( $commented_pattern, $wpconfig_content, $comment_blocks );
+	
+	// Check each comment block for our constants and remove the entire block if it contains them
+	foreach ( $comment_blocks[0] as $comment_block ) {
+		$has_constants = false;
+		foreach ( $constants as $constant ) {
+			if ( strpos( $comment_block, $constant ) !== false || 
+				 strpos( $comment_block, str_replace( "'", '"', $constant ) ) !== false ||
+				 strpos( $comment_block, 'DISALLOW_FILE_MODS' ) !== false ||
+				 strpos( $comment_block, 'DISALLOW_FILE_EDIT' ) !== false ||
+				 strpos( $comment_block, 'AUTOMATIC_UPDATER_DISABLED' ) !== false ) {
+				$has_constants = true;
 				break;
 			}
 		}
 		
-		if ( ! $found ) {
+		// If this comment block contains our constants, remove it
+		if ( $has_constants ) {
+			$wpconfig_content = str_replace( $comment_block, '', $wpconfig_content );
+		}
+	}
+
+	// Check which constants are missing (check for active, non-commented versions)
+	$constants_to_add = array();
+	foreach ( $constants as $constant ) {
+		// Check if constant exists as active code (not in comments)
+		// Remove all comment blocks to check only active code
+		$active_code = $wpconfig_content;
+		$active_code = preg_replace( '/\/\*[\s\S]*?\*\//', '', $active_code );
+		$active_code = preg_replace( '/\/\/.*$/m', '', $active_code );
+		
+		// Check if constant exists in active code
+		$single_quote = strpos( $active_code, $constant ) !== false;
+		$double_quote = strpos( $active_code, str_replace( "'", '"', $constant ) ) !== false;
+		
+		if ( ! $single_quote && ! $double_quote ) {
 			$constants_to_add[] = $constant;
 		}
 	}
 
-	// If all constants are already present, return success
-	if ( empty( $constants_to_add ) ) {
-		return true;
-	}
-
-	// Create backup
+	// Create backup before making any changes
 	$backup_path = $wpconfig_path . '.backup.' . date( 'Y-m-d-H-i-s' );
 	if ( ! @copy( $wpconfig_path, $backup_path ) ) {
 		return new WP_Error( 'backup_failed', __( 'Failed to create backup of wp-config.php. Please check file permissions.', 'lionhead-oxygen' ) );
 	}
 
-	// Find the insertion point (before "That's all, stop editing!")
+	// If no constants to add but we removed commented ones, write cleaned content
+	if ( empty( $constants_to_add ) ) {
+		// Check if we actually removed any comments
+		$original_content = file_get_contents( $wpconfig_path );
+		if ( $wpconfig_content !== $original_content ) {
+			$result = @file_put_contents( $wpconfig_path, $wpconfig_content, LOCK_EX );
+			if ( $result !== false ) {
+				update_option( 'lhd_wpconfig_backup', $backup_path );
+			}
+		}
+		return true;
+	}
+
+	// Find the insertion point - look for "That's all" but make sure it's not inside a comment
 	$insertion_markers = array(
-		"That's all, stop editing!",
+		"That's all, stop editing! Happy blogging.",
 		"That's all, stop editing! Happy publishing.",
-		"/* That's all, stop editing!",
+		"That's all, stop editing!",
 	);
 	
 	$insertion_pos = false;
+	$insertion_marker = '';
+	
+	// Find the marker, but verify it's not inside a comment block
 	foreach ( $insertion_markers as $marker ) {
 		$pos = strpos( $wpconfig_content, $marker );
 		if ( $pos !== false ) {
-			$insertion_pos = $pos;
-			break;
+			// Check if this position is inside a comment block
+			$before_pos = substr( $wpconfig_content, 0, $pos );
+			$open_comments = substr_count( $before_pos, '/*' );
+			$close_comments = substr_count( $before_pos, '*/' );
+			
+			// If we're not inside a comment block, use this position
+			if ( $open_comments === $close_comments ) {
+				$insertion_pos = $pos;
+				$insertion_marker = $marker;
+				break;
+			}
 		}
 	}
 	
-	if ( $insertion_pos === false ) {
-		// If marker not found, try to find the end of the file (before closing PHP tag if exists)
+	// If marker is inside a comment, find the end of the comment block
+	if ( $insertion_pos !== false ) {
+		$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
+		$after_marker_text = substr( $wpconfig_content, $insertion_pos );
+		
+		// Check if marker is inside /* */ comment
+		$last_comment_start = strrpos( $before_marker, '/*' );
+		$last_comment_end = strrpos( $before_marker, '*/' );
+		
+		if ( $last_comment_start !== false && ( $last_comment_end === false || $last_comment_start > $last_comment_end ) ) {
+			// We're inside a comment block, find where it ends
+			$comment_end_pos = strpos( $wpconfig_content, '*/', $insertion_pos );
+			if ( $comment_end_pos !== false ) {
+				// Insert after the comment block closes
+				$insertion_pos = $comment_end_pos + 2; // After */
+				$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
+				$after_marker_text = substr( $wpconfig_content, $insertion_pos );
+			}
+		} else {
+			$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
+			$after_marker_text = substr( $wpconfig_content, $insertion_pos );
+		}
+		
+		$new_content = rtrim( $before_marker ) . "\n\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
+		foreach ( $constants_to_add as $constant ) {
+			$new_content .= $constant . "\n";
+		}
+		$new_content .= "\n" . ltrim( $after_marker_text );
+	} else {
+		// Marker not found, try to find the end of the file (before closing PHP tag if exists)
 		$php_close_pos = strrpos( $wpconfig_content, '?>' );
 		if ( $php_close_pos !== false ) {
-			$insertion_pos = $php_close_pos;
-			$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
-			$after_marker = substr( $wpconfig_content, $insertion_pos );
+			$before_marker = substr( $wpconfig_content, 0, $php_close_pos );
+			$after_marker = substr( $wpconfig_content, $php_close_pos );
 			
 			$new_content = rtrim( $before_marker ) . "\n\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
 			foreach ( $constants_to_add as $constant ) {
@@ -128,16 +190,6 @@ function lhd_add_wpconfig_security_constants() {
 				$new_content .= $constant . "\n";
 			}
 		}
-	} else {
-		// Insert before the marker
-		$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
-		$after_marker = substr( $wpconfig_content, $insertion_pos );
-		
-		$new_content = rtrim( $before_marker ) . "\n\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
-		foreach ( $constants_to_add as $constant ) {
-			$new_content .= $constant . "\n";
-		}
-		$new_content .= "\n" . $after_marker;
 	}
 
 	// Write to file with file locking
@@ -273,6 +325,18 @@ function lhd_auto_add_wpconfig_constants() {
 	}
 }
 add_action( 'admin_init', 'lhd_auto_add_wpconfig_constants', 20 );
+
+/**
+ * Fix wp-config.php if constants are inside comment blocks
+ * Removes commented constants and adds them as active code
+ *
+ * @return bool|WP_Error True on success, WP_Error on failure
+ */
+function lhd_fix_commented_wpconfig_constants() {
+	// This is essentially the same as lhd_add_wpconfig_security_constants
+	// but we'll call it to ensure it handles commented constants
+	return lhd_add_wpconfig_security_constants();
+}
 
 /**
  * Show admin notice if wp-config.php modification failed during activation
@@ -559,6 +623,16 @@ function lhd_security_config_page() {
 		}
 	}
 
+	// Handle form submission for fixing commented constants
+	if ( isset( $_POST['lhd_fix_wpconfig'] ) && check_admin_referer( 'lhd_security_config' ) ) {
+		$result = lhd_fix_commented_wpconfig_constants();
+		if ( is_wp_error( $result ) ) {
+			echo '<div class="notice notice-error"><p><strong>Error:</strong> ' . esc_html( $result->get_error_message() ) . '</p></div>';
+		} else {
+			echo '<div class="notice notice-success"><p>Commented-out constants removed and re-added as active code!</p></div>';
+		}
+	}
+
 	$htaccess_path = ABSPATH . '.htaccess';
 	$htaccess_exists = file_exists( $htaccess_path );
 	$htaccess_readable = $htaccess_exists && is_readable( $htaccess_path );
@@ -614,24 +688,78 @@ function lhd_security_config_page() {
 		
 		<?php
 		$wpconfig_path = ABSPATH . 'wp-config.php';
+		if ( ! file_exists( $wpconfig_path ) ) {
+			$wpconfig_path = dirname( ABSPATH ) . '/wp-config.php';
+		}
+		
 		$wpconfig_exists = file_exists( $wpconfig_path );
 		$wpconfig_readable = $wpconfig_exists && is_readable( $wpconfig_path );
 		$wpconfig_writable = $wpconfig_exists && is_writable( $wpconfig_path );
 		$constants_added = false;
+		$constants_in_comments = false;
 		
 		if ( $wpconfig_readable ) {
 			$wpconfig_content = file_get_contents( $wpconfig_path );
-			$constants_added = strpos( $wpconfig_content, "define( 'DISALLOW_FILE_MODS', true );" ) !== false &&
-							   strpos( $wpconfig_content, "define( 'DISALLOW_FILE_EDIT', true );" ) !== false &&
-							   strpos( $wpconfig_content, "define( 'AUTOMATIC_UPDATER_DISABLED', true );" ) !== false;
+			
+			// Check if constants exist as active code (not in comments)
+			$active_code = $wpconfig_content;
+			$active_code = preg_replace( '/\/\*[\s\S]*?\*\//', '', $active_code );
+			$active_code = preg_replace( '/\/\/.*$/m', '', $active_code );
+			
+			$constants_added = strpos( $active_code, "define( 'DISALLOW_FILE_MODS', true );" ) !== false &&
+							   strpos( $active_code, "define( 'DISALLOW_FILE_EDIT', true );" ) !== false &&
+							   strpos( $active_code, "define( 'AUTOMATIC_UPDATER_DISABLED', true );" ) !== false;
+			
+			// Check if constants exist but are inside comment blocks
+			if ( ! $constants_added ) {
+				// Check if they exist anywhere (including in comments)
+				$in_comments = ( strpos( $wpconfig_content, 'DISALLOW_FILE_MODS' ) !== false ||
+								strpos( $wpconfig_content, 'DISALLOW_FILE_EDIT' ) !== false ||
+								strpos( $wpconfig_content, 'AUTOMATIC_UPDATER_DISABLED' ) !== false );
+				
+				if ( $in_comments ) {
+					// Verify they're actually in comment blocks
+					preg_match_all( '/\/\*[\s\S]*?\*\//', $wpconfig_content, $comment_blocks );
+					foreach ( $comment_blocks[0] as $comment_block ) {
+						if ( strpos( $comment_block, 'DISALLOW_FILE_MODS' ) !== false ||
+							 strpos( $comment_block, 'DISALLOW_FILE_EDIT' ) !== false ||
+							 strpos( $comment_block, 'AUTOMATIC_UPDATER_DISABLED' ) !== false ) {
+							$constants_in_comments = true;
+							break;
+						}
+					}
+				}
+			}
 		}
 		?>
 
 		<?php if ( $wpconfig_exists ) : ?>
 			<?php if ( $constants_added ) : ?>
 				<div class="notice notice-success">
-					<p><strong>✓ Security constants are already added to wp-config.php</strong></p>
+					<p><strong>✓ Security constants are already active in wp-config.php</strong></p>
 				</div>
+			<?php elseif ( $constants_in_comments ) : ?>
+				<div class="notice notice-warning">
+					<p><strong>⚠ Security constants are inside comment blocks and are not active!</strong></p>
+					<p><?php esc_html_e( 'The constants have been added but are commented out. Click the button below to fix this.', 'lionhead-oxygen' ); ?></p>
+				</div>
+				<?php if ( $wpconfig_writable ) : ?>
+					<form method="post">
+						<?php wp_nonce_field( 'lhd_security_config' ); ?>
+						<p>
+							<button type="submit" name="lhd_fix_wpconfig" class="button button-primary">
+								<?php esc_html_e( 'Fix: Remove Commented Constants and Add as Active Code', 'lionhead-oxygen' ); ?>
+							</button>
+						</p>
+						<p class="description">
+							<?php esc_html_e( 'This will remove the commented-out constants and add them as active code. A backup will be created.', 'lionhead-oxygen' ); ?>
+						</p>
+					</form>
+				<?php else : ?>
+					<div class="notice notice-error">
+						<p><?php esc_html_e( 'wp-config.php file is not writable. Please check file permissions or manually remove the commented constants and add them as active code.', 'lionhead-oxygen' ); ?></p>
+					</div>
+				<?php endif; ?>
 			<?php elseif ( $wpconfig_writable ) : ?>
 				<form method="post">
 					<?php wp_nonce_field( 'lhd_security_config' ); ?>

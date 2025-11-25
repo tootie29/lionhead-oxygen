@@ -22,7 +22,7 @@ This plugin is like a toolbox that adds many useful features to your WordPress w
 **Key protections:**
 
 -   **File Editing Protection** - Prevents hackers from editing your theme/plugin files through the admin panel
--   **File Modification Protection** - Prevents installation and updates of plugins/themes through admin (DISALLOW_FILE_MODS)
+-   **File Modification Protection** - Prevents installation and updates of plugins/themes through admin (DISALLOW_FILE_MODS) - Can be toggled from Recommended Plugins page
 -   **Automatic Updater Disabled** - Disables automatic WordPress updates for manual control (AUTOMATIC_UPDATER_DISABLED)
 -   **Automatic wp-config.php Security** - Automatically adds security constants to wp-config.php on plugin activation
 -   **Version Hiding** - Hides WordPress version number from attackers (they can't see what version you're using)
@@ -218,6 +218,14 @@ This plugin is like a toolbox that adds many useful features to your WordPress w
 3. Click **Install** to install a plugin from the WordPress repository
 4. Click **Activate** to activate an installed plugin
 5. Plugins marked as "Active" are already active and working
+
+**Plugin Installation Security Toggle:**
+
+-   If plugin installation is disabled (DISALLOW_FILE_MODS is true), you'll see a warning notice
+-   Click **Enable Plugin Installation** to allow plugin installation (sets DISALLOW_FILE_MODS to false)
+-   Click **Disable Plugin Installation (Security)** to prevent plugin installation (sets DISALLOW_FILE_MODS to true)
+-   Changes are automatically saved to wp-config.php with a backup created
+-   The page will refresh automatically to show the updated status
 
 **Adding Custom Recommended Plugins:**
 

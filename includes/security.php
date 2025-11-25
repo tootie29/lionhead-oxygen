@@ -22,6 +22,22 @@ if ( ! defined( 'DISALLOW_FILE_EDIT' ) ) {
 	define( 'DISALLOW_FILE_EDIT', true );
 }
 
+/**
+ * Disable file modifications (plugins/themes installation/updates)
+ * Prevents installation and updates of plugins and themes through admin
+ */
+if ( ! defined( 'DISALLOW_FILE_MODS' ) ) {
+	define( 'DISALLOW_FILE_MODS', true );
+}
+
+/**
+ * Disable automatic updates
+ * Prevents WordPress from automatically updating
+ */
+if ( ! defined( 'AUTOMATIC_UPDATER_DISABLED' ) ) {
+	define( 'AUTOMATIC_UPDATER_DISABLED', true );
+}
+
 // ============================================================================
 // VERSION INFORMATION HIDING
 // ============================================================================

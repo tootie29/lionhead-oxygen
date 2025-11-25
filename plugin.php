@@ -38,5 +38,15 @@ include_once $includes_dir . 'lazy-content.php';
 include_once $includes_dir . 'admin-customizations.php';
 include_once $includes_dir . 'shortcodes.php';
 
-// Register activation hook for security configuration
+// Register activation hooks for security configuration
 register_activation_hook( __FILE__, 'lhd_activate_htaccess_security' );
+register_activation_hook( __FILE__, 'lhd_activate_wpconfig_security' );
+
+/**
+ * Activation hook to add wp-config.php security constants
+ */
+function lhd_activate_wpconfig_security() {
+	if ( function_exists( 'lhd_add_wpconfig_security_constants' ) ) {
+		lhd_add_wpconfig_security_constants();
+	}
+}

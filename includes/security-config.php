@@ -15,6 +15,96 @@ if ( ! defined( 'WPINC' ) ) {
 // ============================================================================
 
 /**
+ * Automatically add security constants to wp-config.php
+ * Adds DISALLOW_FILE_EDIT, DISALLOW_FILE_MODS, and AUTOMATIC_UPDATER_DISABLED
+ *
+ * @return bool|WP_Error True on success, WP_Error on failure
+ */
+function lhd_add_wpconfig_security_constants() {
+	$wpconfig_path = ABSPATH . 'wp-config.php';
+	
+	// Check if wp-config.php exists and is readable
+	if ( ! file_exists( $wpconfig_path ) || ! is_readable( $wpconfig_path ) ) {
+		return new WP_Error( 'wpconfig_not_found', __( 'wp-config.php file not found or not readable.', 'lionhead-oxygen' ) );
+	}
+
+	// Check if file is writable
+	if ( ! is_writable( $wpconfig_path ) ) {
+		return new WP_Error( 'wpconfig_not_writable', __( 'wp-config.php file is not writable. Please check file permissions.', 'lionhead-oxygen' ) );
+	}
+
+	// Read current content
+	$wpconfig_content = file_get_contents( $wpconfig_path );
+	
+	// Constants to add
+	$constants = array(
+		"define( 'DISALLOW_FILE_MODS', true );",
+		"define( 'DISALLOW_FILE_EDIT', true );",
+		"define( 'AUTOMATIC_UPDATER_DISABLED', true );",
+	);
+
+	// Check which constants are missing
+	$constants_to_add = array();
+	foreach ( $constants as $constant ) {
+		// Check if constant already exists (with both single and double quotes)
+		$single_quote = strpos( $wpconfig_content, $constant ) !== false;
+		$double_quote = strpos( $wpconfig_content, str_replace( "'", '"', $constant ) ) !== false;
+		
+		if ( ! $single_quote && ! $double_quote ) {
+			$constants_to_add[] = $constant;
+		}
+	}
+
+	// If all constants are already present, return success
+	if ( empty( $constants_to_add ) ) {
+		return true;
+	}
+
+	// Create backup
+	$backup_path = $wpconfig_path . '.backup.' . date( 'Y-m-d-H-i-s' );
+	if ( ! copy( $wpconfig_path, $backup_path ) ) {
+		return new WP_Error( 'backup_failed', __( 'Failed to create backup of wp-config.php.', 'lionhead-oxygen' ) );
+	}
+
+	// Find the insertion point (before "That's all, stop editing!")
+	$insertion_marker = "That's all, stop editing!";
+	$insertion_pos = strpos( $wpconfig_content, $insertion_marker );
+	
+	if ( $insertion_pos === false ) {
+		// If marker not found, append to end of file
+		$new_content = $wpconfig_content . "\n\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
+		foreach ( $constants_to_add as $constant ) {
+			$new_content .= $constant . "\n";
+		}
+	} else {
+		// Insert before the marker
+		$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
+		$after_marker = substr( $wpconfig_content, $insertion_pos );
+		
+		$new_content = $before_marker;
+		$new_content .= "\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
+		foreach ( $constants_to_add as $constant ) {
+			$new_content .= $constant . "\n";
+		}
+		$new_content .= "\n" . $after_marker;
+	}
+
+	// Write to file
+	$result = file_put_contents( $wpconfig_path, $new_content );
+	
+	if ( $result === false ) {
+		// Restore backup on failure
+		copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'write_failed', __( 'Failed to write to wp-config.php. Backup restored.', 'lionhead-oxygen' ) );
+	}
+
+	// Store backup location
+	update_option( 'lhd_wpconfig_backup', $backup_path );
+	
+	return true;
+}
+
+/**
  * Check and recommend wp-config.php security settings
  * Note: wp-config.php cannot be modified directly by plugins for security reasons
  * This function checks if recommended settings are present and shows admin notice
@@ -44,6 +134,18 @@ function lhd_check_wpconfig_security() {
 	if ( strpos( $wpconfig_content, "define( 'DISALLOW_FILE_EDIT', true );" ) === false && 
 		 strpos( $wpconfig_content, 'define( "DISALLOW_FILE_EDIT", true );' ) === false ) {
 		$recommendations[] = 'DISALLOW_FILE_EDIT should be set to true';
+	}
+
+	// Check for DISALLOW_FILE_MODS
+	if ( strpos( $wpconfig_content, "define( 'DISALLOW_FILE_MODS', true );" ) === false && 
+		 strpos( $wpconfig_content, 'define( "DISALLOW_FILE_MODS", true );' ) === false ) {
+		$recommendations[] = 'DISALLOW_FILE_MODS should be set to true';
+	}
+
+	// Check for AUTOMATIC_UPDATER_DISABLED
+	if ( strpos( $wpconfig_content, "define( 'AUTOMATIC_UPDATER_DISABLED', true );" ) === false && 
+		 strpos( $wpconfig_content, 'define( "AUTOMATIC_UPDATER_DISABLED", true );' ) === false ) {
+		$recommendations[] = 'AUTOMATIC_UPDATER_DISABLED should be set to true';
 	}
 
 	// Check for WP_DEBUG
@@ -328,10 +430,20 @@ function lhd_security_config_page() {
 		return;
 	}
 
-	// Handle form submission
+	// Handle form submission for .htaccess
 	if ( isset( $_POST['lhd_add_htaccess'] ) && check_admin_referer( 'lhd_security_config' ) ) {
 		lhd_add_htaccess_security();
 		echo '<div class="notice notice-success"><p>Security rules added to .htaccess successfully!</p></div>';
+	}
+
+	// Handle form submission for wp-config.php
+	if ( isset( $_POST['lhd_add_wpconfig'] ) && check_admin_referer( 'lhd_security_config' ) ) {
+		$result = lhd_add_wpconfig_security_constants();
+		if ( is_wp_error( $result ) ) {
+			echo '<div class="notice notice-error"><p><strong>Error:</strong> ' . esc_html( $result->get_error_message() ) . '</p></div>';
+		} else {
+			echo '<div class="notice notice-success"><p>Security constants added to wp-config.php successfully!</p></div>';
+		}
 	}
 
 	$htaccess_path = ABSPATH . '.htaccess';
@@ -385,7 +497,53 @@ function lhd_security_config_page() {
 		<?php endif; ?>
 
 		<h2><?php esc_html_e( 'wp-config.php Security Settings', 'lionhead-oxygen' ); ?></h2>
-		<p><?php esc_html_e( 'The following settings should be manually added to your wp-config.php file. These cannot be added automatically for security reasons.', 'lionhead-oxygen' ); ?></p>
+		<p><?php esc_html_e( 'Automatically add security constants to your wp-config.php file, or manually add them using the code below.', 'lionhead-oxygen' ); ?></p>
+		
+		<?php
+		$wpconfig_path = ABSPATH . 'wp-config.php';
+		$wpconfig_exists = file_exists( $wpconfig_path );
+		$wpconfig_readable = $wpconfig_exists && is_readable( $wpconfig_path );
+		$wpconfig_writable = $wpconfig_exists && is_writable( $wpconfig_path );
+		$constants_added = false;
+		
+		if ( $wpconfig_readable ) {
+			$wpconfig_content = file_get_contents( $wpconfig_path );
+			$constants_added = strpos( $wpconfig_content, "define( 'DISALLOW_FILE_MODS', true );" ) !== false &&
+							   strpos( $wpconfig_content, "define( 'DISALLOW_FILE_EDIT', true );" ) !== false &&
+							   strpos( $wpconfig_content, "define( 'AUTOMATIC_UPDATER_DISABLED', true );" ) !== false;
+		}
+		?>
+
+		<?php if ( $wpconfig_exists ) : ?>
+			<?php if ( $constants_added ) : ?>
+				<div class="notice notice-success">
+					<p><strong>✓ Security constants are already added to wp-config.php</strong></p>
+				</div>
+			<?php elseif ( $wpconfig_writable ) : ?>
+				<form method="post">
+					<?php wp_nonce_field( 'lhd_security_config' ); ?>
+					<p>
+						<button type="submit" name="lhd_add_wpconfig" class="button button-primary">
+							<?php esc_html_e( 'Add Security Constants to wp-config.php', 'lionhead-oxygen' ); ?>
+						</button>
+					</p>
+					<p class="description">
+						<?php esc_html_e( 'A backup of your wp-config.php file will be created before modification.', 'lionhead-oxygen' ); ?>
+					</p>
+				</form>
+			<?php else : ?>
+				<div class="notice notice-warning">
+					<p><?php esc_html_e( 'wp-config.php file is not writable. Please check file permissions or add the constants manually.', 'lionhead-oxygen' ); ?></p>
+				</div>
+			<?php endif; ?>
+		<?php else : ?>
+			<div class="notice notice-warning">
+				<p><?php esc_html_e( 'wp-config.php file not found.', 'lionhead-oxygen' ); ?></p>
+			</div>
+		<?php endif; ?>
+
+		<h3><?php esc_html_e( 'Manual Configuration', 'lionhead-oxygen' ); ?></h3>
+		<p><?php esc_html_e( 'If automatic addition is not possible, you can manually add these settings to your wp-config.php file:', 'lionhead-oxygen' ); ?></p>
 		
 		<div class="card">
 			<h3><?php esc_html_e( 'Recommended Settings', 'lionhead-oxygen' ); ?></h3>

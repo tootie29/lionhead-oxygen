@@ -37,6 +37,7 @@ include_once $includes_dir . 'oxygen-integration.php';
 include_once $includes_dir . 'lazy-content.php';
 include_once $includes_dir . 'admin-customizations.php';
 include_once $includes_dir . 'shortcodes.php';
+include_once $includes_dir . 'recommended-plugins.php';
 
 // Register activation hooks for security configuration
 register_activation_hook( __FILE__, 'lhd_activate_htaccess_security' );

@@ -25,9 +25,14 @@ if ( ! defined( 'DISALLOW_FILE_EDIT' ) ) {
 /**
  * Disable file modifications (plugins/themes installation/updates)
  * Prevents installation and updates of plugins and themes through admin
+ * 
+ * NOTE: Setting this to true will prevent the Recommended Plugins installer from working.
+ * If you want to use the Recommended Plugins feature, set this to false or remove it.
  */
 if ( ! defined( 'DISALLOW_FILE_MODS' ) ) {
-	define( 'DISALLOW_FILE_MODS', true );
+	// Set to false to allow plugin installation via Recommended Plugins page
+	// Set to true for maximum security (blocks all plugin/theme installations)
+	define( 'DISALLOW_FILE_MODS', false );
 }
 
 /**

@@ -46,9 +46,11 @@ function lhd_add_wpconfig_security_constants() {
 		return new WP_Error( 'read_failed', __( 'Failed to read wp-config.php file.', 'lionhead-oxygen' ) );
 	}
 	
-	// Constants to add
+	// Constants to add - check current value of DISALLOW_FILE_MODS to preserve user preference
+	$disallow_file_mods_value = defined( 'DISALLOW_FILE_MODS' ) ? ( DISALLOW_FILE_MODS ? 'true' : 'false' ) : 'false';
+	
 	$constants = array(
-		"define( 'DISALLOW_FILE_MODS', true );",
+		"define( 'DISALLOW_FILE_MODS', {$disallow_file_mods_value} );",
 		"define( 'DISALLOW_FILE_EDIT', true );",
 		"define( 'AUTOMATIC_UPDATER_DISABLED', true );",
 	);
@@ -390,7 +392,7 @@ function lhd_get_wpconfig_security_settings() {
 		),
 		'DISALLOW_FILE_MODS' => array(
 			'code' => "define( 'DISALLOW_FILE_MODS', true );",
-			'description' => 'Prevents installation/update of plugins and themes (optional, use with caution)',
+			'description' => 'Prevents installation/update of plugins and themes (WARNING: This will disable the Recommended Plugins installer. Set to false if you want to use Recommended Plugins feature.)',
 			'location' => 'Add before "That\'s all, stop editing!" line',
 		),
 		'AUTOMATIC_UPDATER_DISABLED' => array(

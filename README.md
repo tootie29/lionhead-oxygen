@@ -195,6 +195,47 @@ This plugin is like a toolbox that adds many useful features to your WordPress w
 
 -   Admin interface improvements
 -   Custom admin functionality
+-   Page ID column in pages list
+
+---
+
+### 📦 Recommended Plugins
+
+**What it does:** Provides an easy way to install and activate optional/recommended plugins.
+
+**Key features:**
+
+-   **One-Click Installation** - Install plugins directly from the WordPress repository
+-   **ZIP File Support** - Install plugins from uploaded ZIP files
+-   **One-Click Activation** - Activate installed plugins with a single click
+-   **Status Detection** - Automatically detects if plugins are installed or active
+-   **Customizable List** - Easily add or remove recommended plugins via filter
+
+**How to use:**
+
+1. Go to **Plugins > Recommended** in WordPress admin
+2. Browse the list of recommended plugins
+3. Click **Install** to install a plugin from the WordPress repository
+4. Click **Activate** to activate an installed plugin
+5. Plugins marked as "Active" are already active and working
+
+**Adding Custom Recommended Plugins:**
+
+You can add your own recommended plugins using the `lhd_recommended_plugins` filter:
+
+```php
+add_filter( 'lhd_recommended_plugins', function( $plugins ) {
+    $plugins[] = array(
+        'name'        => 'Your Plugin Name',
+        'slug'        => 'your-plugin-slug',
+        'required'    => false,
+        'description' => 'Description of your plugin.',
+        'source'      => 'wordpress', // or 'upload' for ZIP files
+        'zip_url'     => '', // URL to ZIP file if source is 'upload'
+    );
+    return $plugins;
+} );
+```
 
 ---
 
@@ -289,7 +330,8 @@ lionhead-oxygen/
 │   ├── query-modifications.php (Query modifications)
 │   ├── utility-functions.php (Utility functions)
 │   ├── admin-customizations.php (Admin features)
-│   └── shortcodes.php (Shortcodes)
+│   ├── shortcodes.php (Shortcodes)
+│   └── recommended-plugins.php (Recommended plugins installer)
 └── assets/
     ├── css/ (Stylesheets)
     └── js/ (JavaScript files)
@@ -318,6 +360,7 @@ For issues or questions, contact the plugin developer.
 -   Automatic wp-config.php security constants addition
 -   Security Configuration admin page
 -   Automatic detection and fixing of commented-out security constants
+-   Recommended plugins installer with one-click installation and activation
 
 ---
 

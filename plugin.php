@@ -44,9 +44,20 @@ register_activation_hook( __FILE__, 'lhd_activate_wpconfig_security' );
 
 /**
  * Activation hook to add wp-config.php security constants
+ * This function must be defined here to ensure it's available when activation runs
  */
 function lhd_activate_wpconfig_security() {
+	// Ensure the function exists (it should be loaded from security-config.php)
 	if ( function_exists( 'lhd_add_wpconfig_security_constants' ) ) {
-		lhd_add_wpconfig_security_constants();
+		$result = lhd_add_wpconfig_security_constants();
+		
+		// Log errors if any
+		if ( is_wp_error( $result ) ) {
+			// Store error in transient to show admin notice
+			set_transient( 'lhd_wpconfig_error', $result->get_error_message(), 30 );
+		}
+	} else {
+		// Function not loaded - store error
+		set_transient( 'lhd_wpconfig_error', 'Security config function not available. Please try using the Security Config page.', 30 );
 	}
 }

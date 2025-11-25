@@ -21,20 +21,30 @@ if ( ! defined( 'WPINC' ) ) {
  * @return bool|WP_Error True on success, WP_Error on failure
  */
 function lhd_add_wpconfig_security_constants() {
+	// Get wp-config.php path - try multiple locations
 	$wpconfig_path = ABSPATH . 'wp-config.php';
+	
+	// Some setups have wp-config.php one level up
+	if ( ! file_exists( $wpconfig_path ) ) {
+		$wpconfig_path = dirname( ABSPATH ) . '/wp-config.php';
+	}
 	
 	// Check if wp-config.php exists and is readable
 	if ( ! file_exists( $wpconfig_path ) || ! is_readable( $wpconfig_path ) ) {
-		return new WP_Error( 'wpconfig_not_found', __( 'wp-config.php file not found or not readable.', 'lionhead-oxygen' ) );
+		return new WP_Error( 'wpconfig_not_found', sprintf( __( 'wp-config.php file not found or not readable at: %s', 'lionhead-oxygen' ), $wpconfig_path ) );
 	}
 
 	// Check if file is writable
 	if ( ! is_writable( $wpconfig_path ) ) {
-		return new WP_Error( 'wpconfig_not_writable', __( 'wp-config.php file is not writable. Please check file permissions.', 'lionhead-oxygen' ) );
+		return new WP_Error( 'wpconfig_not_writable', sprintf( __( 'wp-config.php file is not writable. Please check file permissions. Path: %s', 'lionhead-oxygen' ), $wpconfig_path ) );
 	}
 
 	// Read current content
 	$wpconfig_content = file_get_contents( $wpconfig_path );
+	
+	if ( $wpconfig_content === false ) {
+		return new WP_Error( 'read_failed', __( 'Failed to read wp-config.php file.', 'lionhead-oxygen' ) );
+	}
 	
 	// Constants to add
 	$constants = array(
@@ -50,7 +60,23 @@ function lhd_add_wpconfig_security_constants() {
 		$single_quote = strpos( $wpconfig_content, $constant ) !== false;
 		$double_quote = strpos( $wpconfig_content, str_replace( "'", '"', $constant ) ) !== false;
 		
-		if ( ! $single_quote && ! $double_quote ) {
+		// Also check for variations with spaces
+		$constant_variations = array(
+			$constant,
+			str_replace( "'", '"', $constant ),
+			str_replace( " '", ' "', $constant ),
+			str_replace( "' ", '" ', $constant ),
+		);
+		
+		$found = false;
+		foreach ( $constant_variations as $variation ) {
+			if ( strpos( $wpconfig_content, $variation ) !== false ) {
+				$found = true;
+				break;
+			}
+		}
+		
+		if ( ! $found ) {
 			$constants_to_add[] = $constant;
 		}
 	}
@@ -62,40 +88,65 @@ function lhd_add_wpconfig_security_constants() {
 
 	// Create backup
 	$backup_path = $wpconfig_path . '.backup.' . date( 'Y-m-d-H-i-s' );
-	if ( ! copy( $wpconfig_path, $backup_path ) ) {
-		return new WP_Error( 'backup_failed', __( 'Failed to create backup of wp-config.php.', 'lionhead-oxygen' ) );
+	if ( ! @copy( $wpconfig_path, $backup_path ) ) {
+		return new WP_Error( 'backup_failed', __( 'Failed to create backup of wp-config.php. Please check file permissions.', 'lionhead-oxygen' ) );
 	}
 
 	// Find the insertion point (before "That's all, stop editing!")
-	$insertion_marker = "That's all, stop editing!";
-	$insertion_pos = strpos( $wpconfig_content, $insertion_marker );
+	$insertion_markers = array(
+		"That's all, stop editing!",
+		"That's all, stop editing! Happy publishing.",
+		"/* That's all, stop editing!",
+	);
+	
+	$insertion_pos = false;
+	foreach ( $insertion_markers as $marker ) {
+		$pos = strpos( $wpconfig_content, $marker );
+		if ( $pos !== false ) {
+			$insertion_pos = $pos;
+			break;
+		}
+	}
 	
 	if ( $insertion_pos === false ) {
-		// If marker not found, append to end of file
-		$new_content = $wpconfig_content . "\n\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
-		foreach ( $constants_to_add as $constant ) {
-			$new_content .= $constant . "\n";
+		// If marker not found, try to find the end of the file (before closing PHP tag if exists)
+		$php_close_pos = strrpos( $wpconfig_content, '?>' );
+		if ( $php_close_pos !== false ) {
+			$insertion_pos = $php_close_pos;
+			$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
+			$after_marker = substr( $wpconfig_content, $insertion_pos );
+			
+			$new_content = rtrim( $before_marker ) . "\n\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
+			foreach ( $constants_to_add as $constant ) {
+				$new_content .= $constant . "\n";
+			}
+			$new_content .= "\n" . $after_marker;
+		} else {
+			// If no PHP closing tag, append to end of file
+			$new_content = rtrim( $wpconfig_content ) . "\n\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
+			foreach ( $constants_to_add as $constant ) {
+				$new_content .= $constant . "\n";
+			}
 		}
 	} else {
 		// Insert before the marker
 		$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
 		$after_marker = substr( $wpconfig_content, $insertion_pos );
 		
-		$new_content = $before_marker;
-		$new_content .= "\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
+		$new_content = rtrim( $before_marker ) . "\n\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
 		foreach ( $constants_to_add as $constant ) {
 			$new_content .= $constant . "\n";
 		}
 		$new_content .= "\n" . $after_marker;
 	}
 
-	// Write to file
-	$result = file_put_contents( $wpconfig_path, $new_content );
+	// Write to file with file locking
+	$result = @file_put_contents( $wpconfig_path, $new_content, LOCK_EX );
 	
 	if ( $result === false ) {
 		// Restore backup on failure
-		copy( $backup_path, $wpconfig_path );
-		return new WP_Error( 'write_failed', __( 'Failed to write to wp-config.php. Backup restored.', 'lionhead-oxygen' ) );
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'write_failed', __( 'Failed to write to wp-config.php. Backup restored. Please check file permissions.', 'lionhead-oxygen' ) );
 	}
 
 	// Store backup location
@@ -177,6 +228,68 @@ function lhd_check_wpconfig_security() {
 	}
 }
 add_action( 'admin_init', 'lhd_check_wpconfig_security' );
+
+/**
+ * Attempt to add wp-config constants on admin init if they're missing
+ * Only runs once per day to avoid performance issues
+ */
+function lhd_auto_add_wpconfig_constants() {
+	// Only for admins
+	if ( ! current_user_can( 'manage_options' ) ) {
+		return;
+	}
+
+	// Check if we've already tried today
+	$last_attempt = get_option( 'lhd_wpconfig_last_attempt' );
+	if ( $last_attempt && ( time() - $last_attempt ) < DAY_IN_SECONDS ) {
+		return;
+	}
+
+	// Check if constants are already in wp-config.php
+	$wpconfig_path = ABSPATH . 'wp-config.php';
+	if ( ! file_exists( $wpconfig_path ) || ! is_readable( $wpconfig_path ) ) {
+		return;
+	}
+
+	$wpconfig_content = file_get_contents( $wpconfig_path );
+	$all_present = strpos( $wpconfig_content, "define( 'DISALLOW_FILE_MODS', true );" ) !== false &&
+				   strpos( $wpconfig_content, "define( 'DISALLOW_FILE_EDIT', true );" ) !== false &&
+				   strpos( $wpconfig_content, "define( 'AUTOMATIC_UPDATER_DISABLED', true );" ) !== false;
+
+	// If all constants are present, update last attempt and return
+	if ( $all_present ) {
+		update_option( 'lhd_wpconfig_last_attempt', time() );
+		return;
+	}
+
+	// Try to add them if file is writable
+	if ( is_writable( $wpconfig_path ) ) {
+		$result = lhd_add_wpconfig_security_constants();
+		update_option( 'lhd_wpconfig_last_attempt', time() );
+		
+		if ( is_wp_error( $result ) ) {
+			set_transient( 'lhd_wpconfig_error', $result->get_error_message(), 30 );
+		}
+	}
+}
+add_action( 'admin_init', 'lhd_auto_add_wpconfig_constants', 20 );
+
+/**
+ * Show admin notice if wp-config.php modification failed during activation
+ */
+function lhd_show_wpconfig_activation_notice() {
+	$error = get_transient( 'lhd_wpconfig_error' );
+	if ( $error ) {
+		?>
+		<div class="notice notice-error is-dismissible">
+			<p><strong><?php esc_html_e( 'Lionhead Digital Plugin:', 'lionhead-oxygen' ); ?></strong> <?php echo esc_html( $error ); ?></p>
+			<p><?php esc_html_e( 'You can manually add the security constants using the Security Config page under Tools.', 'lionhead-oxygen' ); ?></p>
+		</div>
+		<?php
+		delete_transient( 'lhd_wpconfig_error' );
+	}
+}
+add_action( 'admin_notices', 'lhd_show_wpconfig_activation_notice' );
 
 /**
  * Get recommended wp-config.php security settings

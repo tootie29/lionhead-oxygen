@@ -354,73 +354,454 @@ function lhd_toggle_file_mods( $enable ) {
 
 	$value = $enable ? 'true' : 'false';
 	$new_constant = "define( 'DISALLOW_FILE_MODS', {$value} );";
-
-	// Check if constant already exists
-	$patterns = array(
-		"/define\s*\(\s*['\"]DISALLOW_FILE_MODS['\"]\s*,\s*(true|false)\s*\)\s*;/i",
-		"/define\s*\(\s*['\"]DISALLOW_FILE_MODS['\"]\s*,\s*(true|false)\s*\)\s*;/i",
-	);
-
-	$found = false;
-	foreach ( $patterns as $pattern ) {
-		if ( preg_match( $pattern, $wpconfig_content ) ) {
-			// Replace existing constant
-			$wpconfig_content = preg_replace( $pattern, $new_constant, $wpconfig_content );
-			$found = true;
-			break;
+	
+	// Log what we're trying to do
+	error_log( 'LHD Toggle: Attempting to set DISALLOW_FILE_MODS to ' . $value );
+	
+	// Check if constant already exists with the desired value (only check active, not commented)
+	// We need to check if it's actually active, not just present in the file
+	$desired_pattern = "/define\s*\(\s*['\"]DISALLOW_FILE_MODS['\"]\s*,\s*{$value}\s*\)\s*;/i";
+	
+	// First, check if it exists at all (with any value) - simple check
+	$current_pattern = "/define\s*\(\s*['\"]DISALLOW_FILE_MODS['\"]\s*,\s*(true|false)\s*\)\s*;/i";
+	$current_match = preg_match( $current_pattern, $wpconfig_content, $current_matches );
+	
+	if ( $current_match && ! empty( $current_matches[1] ) ) {
+		$current_value = strtolower( trim( $current_matches[1] ) );
+		$desired_value = strtolower( trim( $value ) );
+		
+		if ( $current_value === $desired_value ) {
+			// Constant already has the desired value, no change needed
+			error_log( 'LHD Toggle: Constant already has desired value (' . $value . '), skipping update' );
+			return array(
+				'success' => true,
+				'message' => $enable 
+					? __( 'Plugin installation is already disabled (DISALLOW_FILE_MODS is already set to true).', 'lionhead-oxygen' )
+					: __( 'Plugin installation is already enabled (DISALLOW_FILE_MODS is already set to false).', 'lionhead-oxygen' ),
+			);
+		} else {
+			error_log( 'LHD Toggle: Constant exists with value ' . $current_value . ', changing to ' . $desired_value );
 		}
+	} else {
+		error_log( 'LHD Toggle: Constant does not exist, will add it' );
 	}
 
-	if ( ! $found ) {
-		// Constant doesn't exist, add it before "That's all, stop editing!"
-		$insertion_markers = array(
-			"That's all, stop editing! Happy blogging.",
-			"That's all, stop editing! Happy publishing.",
-			"That's all, stop editing!",
-		);
+	// SIMPLE APPROACH: Just replace the existing constant value
+	// This is much more reliable than remove-and-add
+	
+	// Pattern to match DISALLOW_FILE_MODS with any value
+	$replace_pattern = "/define\s*\(\s*['\"]DISALLOW_FILE_MODS['\"]\s*,\s*(true|false)\s*\)\s*;/i";
+	
+	// Find insertion point in case we need to add the constant
+	$insertion_markers = array(
+		"That's all, stop editing! Happy blogging.",
+		"That's all, stop editing! Happy publishing.",
+		"That's all, stop editing!",
+	);
 
-		$insertion_pos = false;
-		foreach ( $insertion_markers as $marker ) {
-			$pos = strpos( $wpconfig_content, $marker );
-			if ( $pos !== false ) {
-				$before_pos = substr( $wpconfig_content, 0, $pos );
-				$open_comments = substr_count( $before_pos, '/*' );
-				$close_comments = substr_count( $before_pos, '*/' );
+	$insertion_pos = false;
+	foreach ( $insertion_markers as $marker ) {
+		$pos = strpos( $wpconfig_content, $marker );
+		if ( $pos !== false ) {
+			$before_pos = substr( $wpconfig_content, 0, $pos );
+			$open_comments = substr_count( $before_pos, '/*' );
+			$close_comments = substr_count( $before_pos, '*/' );
 
-				if ( $open_comments === $close_comments ) {
-					$insertion_pos = $pos;
-					break;
-				}
+			// Make sure we're not inside a comment block
+			if ( $open_comments === $close_comments ) {
+				$insertion_pos = $pos;
+				break;
 			}
 		}
+	}
+	
+	// Check if constant exists and replace it
+	if ( preg_match( $replace_pattern, $wpconfig_content, $matches ) ) {
+		// Constant exists - just replace it
+		error_log( 'LHD Toggle: Found constant, replacing it' );
+		$wpconfig_content = preg_replace( $replace_pattern, $new_constant, $wpconfig_content );
+		error_log( 'LHD Toggle: Replacement done. New content length: ' . strlen( $wpconfig_content ) );
+		
+		// Check if multiple instances were replaced (shouldn't happen, but handle it)
+		$file_mods_count = substr_count( $wpconfig_content, "define( 'DISALLOW_FILE_MODS', {$value} );" );
+		error_log( 'LHD Toggle: Found ' . $file_mods_count . ' instances of constant with value ' . $value );
+		if ( $file_mods_count > 1 ) {
+			// Multiple instances found, remove duplicates - keep only one
+			$lines = explode( "\n", $wpconfig_content );
+			$new_lines = array();
+			$file_mods_added = false;
+			
+			foreach ( $lines as $line ) {
+				if ( preg_match( "/define\s*\(\s*['\"]DISALLOW_FILE_MODS['\"]\s*,\s*(true|false)\s*\)\s*;/i", $line ) ) {
+					if ( ! $file_mods_added ) {
+						$new_lines[] = $new_constant;
+						$file_mods_added = true;
+					}
+					// Skip duplicate instances
+				} else {
+					$new_lines[] = $line;
+				}
+			}
+			
+			$wpconfig_content = implode( "\n", $new_lines );
+		}
+	} else {
+		// Constant doesn't exist - add it along with other missing constants
+		error_log( 'LHD Toggle: Constant not found, adding it' );
+		// Check if DISALLOW_FILE_EDIT and AUTOMATIC_UPDATER_DISABLED exist, add them if missing
+		$file_edit_exists = preg_match( "/define\s*\(\s*['\"]DISALLOW_FILE_EDIT['\"]\s*,\s*(true|false)\s*\)\s*;/i", $wpconfig_content );
+		$updater_exists = preg_match( "/define\s*\(\s*['\"]AUTOMATIC_UPDATER_DISABLED['\"]\s*,\s*(true|false)\s*\)\s*;/i", $wpconfig_content );
+		
+		$constants_to_add = array( $new_constant );
+		
+		if ( ! $file_edit_exists ) {
+			$constants_to_add[] = "define( 'DISALLOW_FILE_EDIT', true );";
+		}
+		if ( ! $updater_exists ) {
+			$constants_to_add[] = "define( 'AUTOMATIC_UPDATER_DISABLED', true );";
+		}
+		
+		$constants_string = implode( "\n", $constants_to_add );
 
 		if ( $insertion_pos !== false ) {
 			$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
 			$after_marker = substr( $wpconfig_content, $insertion_pos );
-			$wpconfig_content = rtrim( $before_marker ) . "\n" . $new_constant . "\n\n" . $after_marker;
+			
+			// Trim trailing whitespace and add constants with proper spacing
+			$before_marker = rtrim( $before_marker );
+			// Add constants before the marker
+			$wpconfig_content = $before_marker . "\n\n" . $constants_string . "\n\n" . ltrim( $after_marker );
 		} else {
-			// Append to end if marker not found
-			$wpconfig_content = rtrim( $wpconfig_content ) . "\n" . $new_constant . "\n";
+			// If marker not found, try to find before require_once wp-settings.php
+			$wp_settings_pos = strpos( $wpconfig_content, "require_once(ABSPATH . 'wp-settings.php');" );
+			if ( $wp_settings_pos !== false ) {
+				$before_settings = substr( $wpconfig_content, 0, $wp_settings_pos );
+				$after_settings = substr( $wpconfig_content, $wp_settings_pos );
+				$wpconfig_content = rtrim( $before_settings ) . "\n\n" . $constants_string . "\n\n" . ltrim( $after_settings );
+			} else {
+				// Last resort: append to end
+				$wpconfig_content = rtrim( $wpconfig_content ) . "\n\n" . $constants_string . "\n";
+			}
 		}
+	}
+	
+	// CRITICAL VALIDATION: Ensure wp-config.php still has essential elements
+	$required_elements = array(
+		'ABSPATH',
+		'wp-settings.php',
+		'DB_NAME',
+		'DB_USER',
+	);
+	
+	foreach ( $required_elements as $element ) {
+		if ( stripos( $wpconfig_content, $element ) === false ) {
+			// Restore backup - wp-config.php is broken
+			@copy( $backup_path, $wpconfig_path );
+			return new WP_Error( 'wpconfig_broken', sprintf( __( 'wp-config.php appears to be missing required element: %s. Changes were not applied and backup was restored.', 'lionhead-oxygen' ), $element ) );
+		}
+	}
+	
+	// Verify DISALLOW_FILE_MODS is in the content with correct value
+	$file_mods_count_final = substr_count( $wpconfig_content, "define( 'DISALLOW_FILE_MODS', {$value} );" );
+	if ( $file_mods_count_final === 0 ) {
+		// Constant not found, something went wrong
+		return new WP_Error( 'constant_not_found', __( 'Failed to update DISALLOW_FILE_MODS constant in wp-config.php.', 'lionhead-oxygen' ) );
+	} elseif ( $file_mods_count_final > 1 ) {
+		// Multiple instances found, remove duplicates - keep only one
+		$lines = explode( "\n", $wpconfig_content );
+		$new_lines = array();
+		$file_mods_added = false;
+		
+		foreach ( $lines as $line ) {
+			if ( preg_match( "/define\s*\(\s*['\"]DISALLOW_FILE_MODS['\"]\s*,\s*(true|false)\s*\)\s*;/i", $line ) ) {
+				if ( ! $file_mods_added ) {
+					$new_lines[] = $new_constant;
+					$file_mods_added = true;
+				}
+				// Skip duplicate instances
+			} else {
+				$new_lines[] = $line;
+			}
+		}
+		
+		$wpconfig_content = implode( "\n", $new_lines );
 	}
 
 	// Write to file
-	$result = @file_put_contents( $wpconfig_path, $wpconfig_content, LOCK_EX );
-
-	if ( $result === false ) {
-		// Restore backup on failure
+	// Clear any cached file status
+	clearstatcache( true, $wpconfig_path );
+	
+	// Store original content length and backup size for comparison
+	$original_size = strlen( $wpconfig_content );
+	$backup_size = filesize( $backup_path );
+	
+	error_log( 'LHD Toggle: About to write. Content size: ' . $original_size . ', Backup size: ' . $backup_size );
+	
+	// Double-check file is writable before attempting write
+	if ( ! is_writable( $wpconfig_path ) ) {
+		error_log( 'LHD Toggle: File is not writable!' );
 		@copy( $backup_path, $wpconfig_path );
-		return new WP_Error( 'write_failed', __( 'Failed to write to wp-config.php. Backup restored.', 'lionhead-oxygen' ) );
+		return new WP_Error( 'write_failed', __( 'wp-config.php is not writable. Please check file permissions.', 'lionhead-oxygen' ) );
+	}
+	
+	// Try using fopen/fwrite instead of file_put_contents for better control
+	error_log( 'LHD Toggle: Opening file for writing' );
+	$handle = @fopen( $wpconfig_path, 'wb' );
+	if ( ! $handle ) {
+		$error = error_get_last();
+		$error_msg = __( 'Failed to open wp-config.php for writing. Backup restored.', 'lionhead-oxygen' );
+		if ( $error ) {
+			$error_msg .= ' ' . sprintf( __( 'Error: %s', 'lionhead-oxygen' ), $error['message'] );
+		}
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'write_failed', $error_msg );
+	}
+	
+	// Lock the file
+	if ( ! flock( $handle, LOCK_EX ) ) {
+		fclose( $handle );
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'write_failed', __( 'Failed to lock wp-config.php for writing. Backup restored.', 'lionhead-oxygen' ) );
+	}
+	
+	// Write the content
+	error_log( 'LHD Toggle: Writing content to file' );
+	$bytes_written = @fwrite( $handle, $wpconfig_content );
+	error_log( 'LHD Toggle: Wrote ' . $bytes_written . ' bytes' );
+	
+	// Unlock and close
+	flock( $handle, LOCK_UN );
+	fclose( $handle );
+	
+	if ( $bytes_written === false || $bytes_written === 0 ) {
+		error_log( 'LHD Toggle: Write failed! Bytes written: ' . var_export( $bytes_written, true ) );
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'write_failed', __( 'Failed to write content to wp-config.php. Backup restored.', 'lionhead-oxygen' ) );
+	}
+	
+	// Verify the file was actually written (check file size)
+	clearstatcache( true, $wpconfig_path );
+	if ( ! file_exists( $wpconfig_path ) ) {
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'write_verify_failed', __( 'File write verification failed. wp-config.php does not exist after write. Backup restored.', 'lionhead-oxygen' ) );
+	}
+	
+	$file_size = filesize( $wpconfig_path );
+	if ( $file_size === 0 ) {
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'write_verify_failed', __( 'File write verification failed. wp-config.php is empty after write. Backup restored.', 'lionhead-oxygen' ) );
+	}
+	
+	// Check if bytes written matches what we expected (allow some tolerance for line endings)
+	if ( abs( $bytes_written - $original_size ) > 10 && $bytes_written < $original_size * 0.9 ) {
+		// We wrote significantly less than expected
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'write_verify_failed', sprintf( __( 'File write verification failed. Expected to write %d bytes but only wrote %d bytes. Backup restored.', 'lionhead-oxygen' ), $original_size, $bytes_written ) );
+	}
+	
+	// If file size didn't change at all and we wrote different content, that's suspicious
+	// But allow for the case where content is the same size
+	if ( abs( $file_size - $backup_size ) < 5 ) {
+		// File size is almost the same - check if content actually changed
+		$backup_content_check = file_get_contents( $backup_path );
+		if ( $backup_content_check === $wpconfig_content ) {
+			// Content is identical, so no change needed
+			// But we should still verify our constant is there
+		} else {
+			// Content should be different but file size is the same - suspicious
+			// Don't fail yet, let verification check the content
+		}
+	}
+
+	// Clear stat cache to ensure we read the fresh file
+	clearstatcache( true, $wpconfig_path );
+	
+	// Wait a moment for file system to sync (some systems need this)
+	usleep( 200000 ); // 0.2 seconds
+	
+	// Verify the write was successful by checking if constant exists in file
+	error_log( 'LHD Toggle: Starting verification. Bytes written: ' . $bytes_written . ', File size: ' . $file_size . ', Backup size: ' . $backup_size );
+	
+	$verify_content = file_get_contents( $wpconfig_path );
+	if ( $verify_content === false ) {
+		error_log( 'LHD Toggle: Failed to read file for verification' );
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'verify_read_failed', __( 'Failed to read wp-config.php after write. Backup restored.', 'lionhead-oxygen' ) );
+	}
+	
+	// SIMPLIFIED VERIFICATION: Just check if the constant exists with the correct value
+	// Since false works, the write mechanism is fine - we just need to verify correctly
+	
+	// If write clearly succeeded (bytes written and file size changed), we can be more lenient
+	$write_clearly_succeeded = ( $bytes_written > 0 && abs( $file_size - $backup_size ) > 10 );
+	error_log( 'LHD Toggle: Write clearly succeeded: ' . ( $write_clearly_succeeded ? 'yes' : 'no' ) );
+	
+	// Wait a bit longer for file system to fully sync
+	usleep( 300000 ); // 0.3 seconds
+	clearstatcache( true, $wpconfig_path );
+	
+	// Re-read the file to make sure we have the latest
+	$verify_content = file_get_contents( $wpconfig_path );
+	if ( $verify_content === false ) {
+		error_log( 'LHD Toggle: Failed to re-read file for verification' );
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'verify_read_failed', __( 'Failed to read wp-config.php after write. Backup restored.', 'lionhead-oxygen' ) );
+	}
+	
+	error_log( 'LHD Toggle: Verification content length: ' . strlen( $verify_content ) );
+	
+	$constant_found = false;
+	
+	// Check if the constant exists at all (with any value) - be very flexible with the pattern
+	$constant_exists = preg_match( "/define\s*\(\s*['\"]DISALLOW_FILE_MODS['\"]\s*,\s*(true|false|TRUE|FALSE|1|0)\s*\)\s*;/i", $verify_content, $matches );
+	error_log( 'LHD Toggle: Constant exists check: ' . ( $constant_exists ? 'yes' : 'no' ) );
+	if ( $constant_exists && ! empty( $matches[1] ) ) {
+		error_log( 'LHD Toggle: Found constant with value: ' . $matches[1] );
+	}
+	
+	if ( $constant_exists && ! empty( $matches[1] ) ) {
+		$found_value_raw = trim( $matches[1] );
+		$found_value = strtolower( $found_value_raw );
+		
+		// Normalize values: true/TRUE/1 -> true, false/FALSE/0 -> false
+		if ( $found_value === '1' || $found_value === 'true' ) {
+			$found_value = 'true';
+		} elseif ( $found_value === '0' || $found_value === 'false' ) {
+			$found_value = 'false';
+		}
+		
+		$expected_value = strtolower( trim( $value ) );
+		
+		// If the value matches (case-insensitive), we're good!
+		if ( $found_value === $expected_value ) {
+			$constant_found = true;
+			error_log( 'LHD Toggle: Verification SUCCESS! Constant found with correct value: ' . $found_value );
+		} else {
+			error_log( 'LHD Toggle: Verification FAILED! Expected: ' . $expected_value . ', Found: ' . $found_value );
+			// It's there but with a different value
+			// If bytes were written successfully and file size changed, the write probably worked
+			// Maybe verification is reading stale data - let's be more lenient
+			if ( $bytes_written > 0 && abs( $file_size - $backup_size ) > 10 ) {
+				// Write succeeded and file changed - maybe verification is just seeing old data
+				// Log a warning but don't fail
+				error_log( 'LHD Toggle: Value mismatch but write succeeded. Expected: ' . $value . ', Found: ' . $found_value_raw . ', Bytes written: ' . $bytes_written );
+				// Actually, let's fail this - we need the correct value
+				@copy( $backup_path, $wpconfig_path );
+				return new WP_Error( 'verify_failed', sprintf( __( 'Failed to verify wp-config.php update. Expected DISALLOW_FILE_MODS to be %s but found %s in the file. Backup restored.', 'lionhead-oxygen' ), $value, $found_value_raw ) );
+			} else {
+				@copy( $backup_path, $wpconfig_path );
+				return new WP_Error( 'verify_failed', sprintf( __( 'Failed to verify wp-config.php update. Expected DISALLOW_FILE_MODS to be %s but found %s in the file. Backup restored.', 'lionhead-oxygen' ), $value, $found_value_raw ) );
+			}
+		}
+	} else {
+		// Constant doesn't exist in the file at all
+		// Check if we expected it to be there
+		$expected_in_content = strpos( $wpconfig_content, "define( 'DISALLOW_FILE_MODS', {$value} );" ) !== false;
+		
+		if ( $expected_in_content ) {
+			// We wrote it but it's not there - something went wrong
+			// Log for debugging
+			error_log( 'LHD Toggle: Constant was in prepared content but not found in file. Expected: ' . $value . ', Bytes written: ' . $bytes_written . ', File size: ' . filesize( $wpconfig_path ) );
+			
+			// Before restoring, let's check one more time with a simpler search
+			if ( stripos( $verify_content, 'DISALLOW_FILE_MODS' ) !== false ) {
+				// The constant name is there, let's see what value it has
+				$lines = explode( "\n", $verify_content );
+				foreach ( $lines as $line_num => $line ) {
+					if ( stripos( $line, 'DISALLOW_FILE_MODS' ) !== false ) {
+						error_log( 'LHD Toggle: Found DISALLOW_FILE_MODS on line ' . ( $line_num + 1 ) . ': ' . trim( $line ) );
+						// Check if this line has our value
+						if ( stripos( $line, $value ) !== false ) {
+							// The value is on this line - verification might have missed it due to formatting
+							$constant_found = true;
+							break;
+						}
+					}
+				}
+			}
+			
+			// If write clearly succeeded and we still can't find it, maybe it's a verification timing issue
+			// But if we found it in the line-by-line check above, we're good
+			if ( ! $constant_found ) {
+				if ( $write_clearly_succeeded ) {
+					// Write succeeded but verification failed - might be a timing/caching issue
+					// Let's check one more time after another short wait
+					usleep( 200000 ); // 0.2 more seconds
+					clearstatcache( true, $wpconfig_path );
+					$verify_content_retry = file_get_contents( $wpconfig_path );
+					if ( $verify_content_retry && preg_match( "/define\s*\(\s*['\"]DISALLOW_FILE_MODS['\"]\s*,\s*{$value}\s*\)\s*;/i", $verify_content_retry ) ) {
+						$constant_found = true;
+					}
+				}
+				
+				if ( ! $constant_found ) {
+					@copy( $backup_path, $wpconfig_path );
+					return new WP_Error( 'verify_failed', sprintf( __( 'Failed to verify wp-config.php update. The constant was in our prepared content but not found in the written file. This may indicate a file system issue. Backup restored.', 'lionhead-oxygen' ), $value ) );
+				}
+			}
+		}
+		
+		// If we get here, the constant isn't in the file at all
+		// But maybe it was added in a different format - let's be lenient and check if the file was at least modified
+		// If the file size changed significantly, the write probably worked
+		$backup_size_check = filesize( $backup_path );
+		$current_size_check = filesize( $wpconfig_path );
+		
+		if ( abs( $current_size_check - $backup_size_check ) < 50 ) {
+			// File size didn't change much, probably nothing was written
+			@copy( $backup_path, $wpconfig_path );
+			return new WP_Error( 'verify_failed', sprintf( __( 'Failed to verify wp-config.php update. Expected DISALLOW_FILE_MODS to be %s but it was not found in the file and file size did not change. Backup restored.', 'lionhead-oxygen' ), $value ) );
+		}
+		
+		// File size changed, so something was written, but we can't find our constant
+		// This is suspicious - restore backup to be safe
+		@copy( $backup_path, $wpconfig_path );
+		return new WP_Error( 'verify_failed', sprintf( __( 'Failed to verify wp-config.php update. Expected DISALLOW_FILE_MODS to be %s but it was not found in the file. File was modified but constant not found. Backup restored.', 'lionhead-oxygen' ), $value ) );
+	}
+
+	// CRITICAL: Verify that we ONLY modified DISALLOW_FILE_MODS and didn't touch other constants
+	// Check that DISALLOW_FILE_EDIT and AUTOMATIC_UPDATER_DISABLED are still present and unchanged
+	$backup_content = file_get_contents( $backup_path );
+	
+	// Extract DISALLOW_FILE_EDIT from backup
+	preg_match( "/define\s*\(\s*['\"]DISALLOW_FILE_EDIT['\"]\s*,\s*(true|false)\s*\)\s*;/i", $backup_content, $file_edit_backup );
+	preg_match( "/define\s*\(\s*['\"]AUTOMATIC_UPDATER_DISABLED['\"]\s*,\s*(true|false)\s*\)\s*;/i", $backup_content, $updater_backup );
+	
+	// Extract from new content
+	preg_match( "/define\s*\(\s*['\"]DISALLOW_FILE_EDIT['\"]\s*,\s*(true|false)\s*\)\s*;/i", $verify_content, $file_edit_new );
+	preg_match( "/define\s*\(\s*['\"]AUTOMATIC_UPDATER_DISABLED['\"]\s*,\s*(true|false)\s*\)\s*;/i", $verify_content, $updater_new );
+	
+	// If they existed in backup, they should still exist with same value
+	if ( ! empty( $file_edit_backup ) ) {
+		if ( empty( $file_edit_new ) || $file_edit_backup[1] !== $file_edit_new[1] ) {
+			// DISALLOW_FILE_EDIT was changed or removed - restore backup
+			@copy( $backup_path, $wpconfig_path );
+			return new WP_Error( 'other_constant_changed', __( 'DISALLOW_FILE_EDIT was unexpectedly modified. Changes were not applied and backup was restored.', 'lionhead-oxygen' ) );
+		}
+	}
+	
+	if ( ! empty( $updater_backup ) ) {
+		if ( empty( $updater_new ) || $updater_backup[1] !== $updater_new[1] ) {
+			// AUTOMATIC_UPDATER_DISABLED was changed or removed - restore backup
+			@copy( $backup_path, $wpconfig_path );
+			return new WP_Error( 'other_constant_changed', __( 'AUTOMATIC_UPDATER_DISABLED was unexpectedly modified. Changes were not applied and backup was restored.', 'lionhead-oxygen' ) );
+		}
 	}
 
 	// Store backup location
 	update_option( 'lhd_wpconfig_backup', $backup_path );
+	
+	// Set transient to prevent auto-add function from running right after toggle
+	set_transient( 'lhd_file_mods_toggled', true, 60 ); // 60 seconds
 
+	// Return success message based on what we set
+	$message = $enable 
+		? __( 'Plugin installation has been disabled (DISALLOW_FILE_MODS set to true).', 'lionhead-oxygen' )
+		: __( 'Plugin installation has been enabled (DISALLOW_FILE_MODS set to false).', 'lionhead-oxygen' );
+	
 	return array(
 		'success' => true,
-		'message' => $enable 
-			? __( 'Plugin installation has been disabled (DISALLOW_FILE_MODS set to true).', 'lionhead-oxygen' )
-			: __( 'Plugin installation has been enabled (DISALLOW_FILE_MODS set to false).', 'lionhead-oxygen' ),
+		'message' => $message,
 	);
 }
 
@@ -443,7 +824,10 @@ function lhd_handle_toggle_file_mods_ajax() {
 	$result = lhd_toggle_file_mods( $enable );
 
 	if ( is_wp_error( $result ) ) {
-		wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+		wp_send_json_error( array( 
+			'message' => $result->get_error_message(),
+			'error_code' => $result->get_error_code()
+		) );
 	}
 
 	wp_send_json_success( array( 'message' => $result['message'] ) );
@@ -484,7 +868,9 @@ add_action( 'wp_ajax_lhd_activate_plugin', 'lhd_handle_plugin_activate_ajax' );
  * Add admin menu for recommended plugins
  */
 function lhd_add_recommended_plugins_menu() {
-	if ( ! current_user_can( 'install_plugins' ) ) {
+	// Use manage_options instead of install_plugins so the page is always accessible
+	// even when DISALLOW_FILE_MODS is true (needed to toggle the setting)
+	if ( ! current_user_can( 'manage_options' ) ) {
 		return;
 	}
 
@@ -492,7 +878,7 @@ function lhd_add_recommended_plugins_menu() {
 		'plugins.php',
 		__( 'Recommended Plugins', 'lionhead-oxygen' ),
 		__( 'Recommended', 'lionhead-oxygen' ),
-		'install_plugins',
+		'manage_options',
 		'lhd-recommended-plugins',
 		'lhd_recommended_plugins_page'
 	);
@@ -503,8 +889,9 @@ add_action( 'admin_menu', 'lhd_add_recommended_plugins_menu' );
  * Recommended plugins admin page
  */
 function lhd_recommended_plugins_page() {
-	if ( ! current_user_can( 'install_plugins' ) ) {
-		return;
+	// Use manage_options so page is accessible even when DISALLOW_FILE_MODS is true
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( __( 'You do not have sufficient permissions to access this page.', 'lionhead-oxygen' ) );
 	}
 
 	$recommended_plugins = lhd_get_recommended_plugins();
@@ -534,8 +921,9 @@ function lhd_recommended_plugins_page() {
 					<p>
 						<button 
 							type="button" 
-							class="button button-primary lhd-enable-file-mods" 
-							data-enable="false"
+							class="button button-primary lhd-toggle-file-mods" 
+							data-set-disallow-file-mods="false"
+							data-current-status="disabled"
 							data-nonce="<?php echo esc_attr( wp_create_nonce( 'lhd_toggle_file_mods' ) ); ?>"
 						>
 							<?php esc_html_e( 'Enable Plugin Installation', 'lionhead-oxygen' ); ?>
@@ -566,8 +954,9 @@ function lhd_recommended_plugins_page() {
 					<p>
 						<button 
 							type="button" 
-							class="button lhd-disable-file-mods" 
-							data-enable="true"
+							class="button lhd-toggle-file-mods" 
+							data-set-disallow-file-mods="true"
+							data-current-status="enabled"
 							data-nonce="<?php echo esc_attr( wp_create_nonce( 'lhd_toggle_file_mods' ) ); ?>"
 						>
 							<?php esc_html_e( 'Disable Plugin Installation (Security)', 'lionhead-oxygen' ); ?>
@@ -641,39 +1030,77 @@ function lhd_recommended_plugins_page() {
 	<script type="text/javascript">
 	jQuery(document).ready(function($) {
 		// Handle DISALLOW_FILE_MODS toggle
-		$('.lhd-enable-file-mods, .lhd-disable-file-mods').on('click', function(e) {
+		$('.lhd-toggle-file-mods').on('click', function(e) {
 			e.preventDefault();
 			var $button = $(this);
 			var $message = $('.lhd-file-mods-message');
-			var enable = $button.data('enable') === 'true';
+			// Get the value we want to set DISALLOW_FILE_MODS to
+			// 'true' = set DISALLOW_FILE_MODS to true (disable plugin installation)
+			// 'false' = set DISALLOW_FILE_MODS to false (enable plugin installation)
+			var setDisallowFileMods = $button.data('set-disallow-file-mods') === 'true';
+			var currentStatus = $button.data('current-status');
 			var nonce = $button.data('nonce');
 
+			// Update button text to show processing state
+			var originalText = $button.text();
 			$button.prop('disabled', true);
+			if (setDisallowFileMods) {
+				// Setting to true = disabling plugin installation
+				$button.text('<?php esc_html_e( 'Disabling...', 'lionhead-oxygen' ); ?>');
+			} else {
+				// Setting to false = enabling plugin installation
+				$button.text('<?php esc_html_e( 'Enabling...', 'lionhead-oxygen' ); ?>');
+			}
+			
 			$message.hide().removeClass('notice-success notice-error');
 
+			// Pass the value to set DISALLOW_FILE_MODS to
+			// enable=true means set DISALLOW_FILE_MODS to true (disable installation)
+			// enable=false means set DISALLOW_FILE_MODS to false (enable installation)
 			$.ajax({
 				url: ajaxurl,
 				type: 'POST',
 				data: {
 					action: 'lhd_toggle_file_mods',
-					enable: enable ? 'true' : 'false',
+					enable: setDisallowFileMods ? 'true' : 'false',
 					nonce: nonce
 				},
 				success: function(response) {
 					if (response.success) {
+						// Update button text and data attributes based on new status
+						if (setDisallowFileMods) {
+							// We just disabled, so now show enable button
+							$button.text('<?php esc_html_e( 'Enable Plugin Installation', 'lionhead-oxygen' ); ?>')
+								.data('set-disallow-file-mods', 'false')
+								.data('current-status', 'disabled')
+								.removeClass('button')
+								.addClass('button button-primary');
+						} else {
+							// We just enabled, so now show disable button
+							$button.text('<?php esc_html_e( 'Disable Plugin Installation (Security)', 'lionhead-oxygen' ); ?>')
+								.data('set-disallow-file-mods', 'true')
+								.data('current-status', 'enabled')
+								.removeClass('button-primary')
+								.addClass('button');
+						}
+						
 						$message.addClass('notice notice-success').html('<p>' + response.data.message + '</p>').show();
-						// Reload page after 1 second to show updated status
+						// Reload page after 1.5 seconds to show updated status and allow wp-config to be reloaded
 						setTimeout(function() {
 							location.reload();
-						}, 1000);
+						}, 1500);
 					} else {
-						$message.addClass('notice notice-error').html('<p>' + response.data.message + '</p>').show();
-						$button.prop('disabled', false);
+						var errorMsg = response.data.message || '<?php esc_html_e( 'An unknown error occurred.', 'lionhead-oxygen' ); ?>';
+						if (response.data.error_code) {
+							errorMsg += ' (Error: ' + response.data.error_code + ')';
+						}
+						$message.addClass('notice notice-error').html('<p>' + errorMsg + '</p>').show();
+						$button.text(originalText).prop('disabled', false);
 					}
 				},
 				error: function() {
 					$message.addClass('notice notice-error').html('<p><?php esc_html_e( 'An error occurred. Please try again.', 'lionhead-oxygen' ); ?></p>').show();
-					$button.prop('disabled', false);
+					$button.text(originalText).prop('disabled', false);
 				}
 			});
 		});

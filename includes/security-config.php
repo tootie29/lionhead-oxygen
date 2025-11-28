@@ -286,11 +286,18 @@ add_action( 'admin_init', 'lhd_check_wpconfig_security' );
 /**
  * Attempt to add wp-config constants on admin init if they're missing
  * Only runs once per day to avoid performance issues
+ * NOTE: This function respects user's DISALLOW_FILE_MODS toggle preference
  */
 function lhd_auto_add_wpconfig_constants() {
 	// Only for admins
 	if ( ! current_user_can( 'manage_options' ) ) {
 		return;
+	}
+
+	// Don't run if we just toggled DISALLOW_FILE_MODS (give it time to settle)
+	$last_toggle = get_transient( 'lhd_file_mods_toggled' );
+	if ( $last_toggle ) {
+		return; // Skip auto-add if toggle just happened
 	}
 
 	// Check if we've already tried today
@@ -306,24 +313,70 @@ function lhd_auto_add_wpconfig_constants() {
 	}
 
 	$wpconfig_content = file_get_contents( $wpconfig_path );
-	$all_present = strpos( $wpconfig_content, "define( 'DISALLOW_FILE_MODS', true );" ) !== false &&
-				   strpos( $wpconfig_content, "define( 'DISALLOW_FILE_EDIT', true );" ) !== false &&
-				   strpos( $wpconfig_content, "define( 'AUTOMATIC_UPDATER_DISABLED', true );" ) !== false;
+	
+	// Check for DISALLOW_FILE_EDIT and AUTOMATIC_UPDATER_DISABLED (don't check DISALLOW_FILE_MODS as user may have toggled it)
+	$file_edit_present = preg_match( "/define\s*\(\s*['\"]DISALLOW_FILE_EDIT['\"]\s*,\s*(true|false)\s*\)\s*;/i", $wpconfig_content );
+	$updater_present = preg_match( "/define\s*\(\s*['\"]AUTOMATIC_UPDATER_DISABLED['\"]\s*,\s*(true|false)\s*\)\s*;/i", $wpconfig_content );
 
-	// If all constants are present, update last attempt and return
-	if ( $all_present ) {
+	// Only add missing constants (DISALLOW_FILE_EDIT and AUTOMATIC_UPDATER_DISABLED)
+	// Don't touch DISALLOW_FILE_MODS as it may have been toggled by user
+	if ( $file_edit_present && $updater_present ) {
 		update_option( 'lhd_wpconfig_last_attempt', time() );
 		return;
 	}
 
-	// Try to add them if file is writable
+	// Only add missing constants, preserve DISALLOW_FILE_MODS if it exists
+	// We'll modify the add function to only add what's missing
 	if ( is_writable( $wpconfig_path ) ) {
-		$result = lhd_add_wpconfig_security_constants();
-		update_option( 'lhd_wpconfig_last_attempt', time() );
-		
-		if ( is_wp_error( $result ) ) {
-			set_transient( 'lhd_wpconfig_error', $result->get_error_message(), 30 );
+		// Only add DISALLOW_FILE_EDIT and AUTOMATIC_UPDATER_DISABLED if missing
+		// Don't touch DISALLOW_FILE_MODS
+		$constants_to_add = array();
+		if ( ! $file_edit_present ) {
+			$constants_to_add[] = "define( 'DISALLOW_FILE_EDIT', true );";
 		}
+		if ( ! $updater_present ) {
+			$constants_to_add[] = "define( 'AUTOMATIC_UPDATER_DISABLED', true );";
+		}
+		
+		if ( ! empty( $constants_to_add ) ) {
+			// Add only missing constants
+			$backup_path = $wpconfig_path . '.backup.' . date( 'Y-m-d-H-i-s' );
+			@copy( $wpconfig_path, $backup_path );
+			
+			// Find insertion point
+			$insertion_markers = array(
+				"That's all, stop editing! Happy blogging.",
+				"That's all, stop editing! Happy publishing.",
+				"That's all, stop editing!",
+			);
+			
+			$insertion_pos = false;
+			foreach ( $insertion_markers as $marker ) {
+				$pos = strpos( $wpconfig_content, $marker );
+				if ( $pos !== false ) {
+					$before_pos = substr( $wpconfig_content, 0, $pos );
+					$open_comments = substr_count( $before_pos, '/*' );
+					$close_comments = substr_count( $before_pos, '*/' );
+					if ( $open_comments === $close_comments ) {
+						$insertion_pos = $pos;
+						break;
+					}
+				}
+			}
+			
+			if ( $insertion_pos !== false ) {
+				$before_marker = substr( $wpconfig_content, 0, $insertion_pos );
+				$after_marker = substr( $wpconfig_content, $insertion_pos );
+				$new_content = rtrim( $before_marker ) . "\n\n// Security constants added by Lionhead Digital Custom Functionality Plugin\n";
+				foreach ( $constants_to_add as $constant ) {
+					$new_content .= $constant . "\n";
+				}
+				$new_content .= "\n" . $after_marker;
+				@file_put_contents( $wpconfig_path, $new_content, LOCK_EX );
+			}
+		}
+		
+		update_option( 'lhd_wpconfig_last_attempt', time() );
 	}
 }
 add_action( 'admin_init', 'lhd_auto_add_wpconfig_constants', 20 );
